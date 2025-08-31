@@ -1,0 +1,1951 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+The content has been processed where security check has been disabled.
+
+================================================================
+File Summary
+================================================================
+
+Purpose:
+--------
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+
+File Format:
+------------
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  a. A separator line (================)
+  b. The file path (File: path/to/file)
+  c. Another separator line
+  d. The full contents of the file
+  e. A blank line
+
+Usage Guidelines:
+-----------------
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+
+Notes:
+------
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: backend/**/*.*, frontend/**/*.*
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Security check has been disabled - content may contain sensitive information
+- Files are sorted by Git change count (files with more changes are at the bottom)
+
+
+================================================================
+Directory Structure
+================================================================
+backend/
+  app.py
+  pyproject.toml
+  validators.py
+frontend/
+  public/
+    index.html
+    styles.css
+  src/
+    script.ts
+  .editorconfig
+  .eslintignore
+  .eslintrc.json
+  .prettierrc.js
+  package.json
+  tsconfig.json
+
+================================================================
+Files
+================================================================
+
+================
+File: backend/app.py
+================
+import logging
+
+from typing import Any
+from urllib.parse import urlparse, urlunparse
+from uuid import uuid4
+
+import bleach
+import httpx
+import socketio
+import validators
+
+from a2a.client import A2ACardResolver, A2AClient
+from a2a.types import (
+    AgentCard,
+    JSONRPCErrorResponse,
+    Message,
+    MessageSendConfiguration,
+    MessageSendParams,
+    Role,
+    SendMessageRequest,
+    SendMessageResponse,
+    SendStreamingMessageRequest,
+    SendStreamingMessageResponse,
+    TextPart,
+)
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+
+STANDARD_HEADERS = {
+    'host',
+    'user-agent',
+    'accept',
+    'content-type',
+    'content-length',
+    'connection',
+    'accept-encoding',
+}
+
+# ==============================================================================
+# Setup
+# ==============================================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+# NOTE: In a production environment, cors_allowed_origins should be restricted
+# to the specific frontend domain, not a wildcard '*'.
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+socket_app = socketio.ASGIApp(sio)
+app.mount('/socket.io', socket_app)
+
+app.mount('/static', StaticFiles(directory='../frontend/public'), name='static')
+templates = Jinja2Templates(directory='../frontend/public')
+
+# ==============================================================================
+# State Management
+# ==============================================================================
+
+# NOTE: This global dictionary stores state. For a simple inspector tool with
+# transient connections, this is acceptable. For a scalable production service,
+# a more robust state management solution (e.g., Redis) would be required.
+clients: dict[str, tuple[httpx.AsyncClient, A2AClient, AgentCard]] = {}
+
+
+# ==============================================================================
+# Socket.IO Event Helpers
+# ==============================================================================
+
+
+async def _emit_debug_log(
+    sid: str, event_id: str, log_type: str, data: Any
+) -> None:
+    """Helper to emit a structured debug log event to the client."""
+    await sio.emit(
+        'debug_log', {'type': log_type, 'data': data, 'id': event_id}, to=sid
+    )
+
+
+async def _process_a2a_response(
+    result: SendMessageResponse | SendStreamingMessageResponse,
+    sid: str,
+    request_id: str,
+) -> None:
+    """Processes a response from the A2A client, validates it, and emits events.
+
+    Handles both success and error responses.
+    """
+    if isinstance(result.root, JSONRPCErrorResponse):
+        error_data = result.root.error.model_dump(exclude_none=True)
+        await _emit_debug_log(sid, request_id, 'error', error_data)
+        await sio.emit(
+            'agent_response',
+            {
+                'error': error_data.get('message', 'Unknown error'),
+                'id': request_id,
+            },
+            to=sid,
+        )
+        return
+
+    # Success case
+    event = result.root.result
+    # The response payload 'event' (Task, Message, etc.) may have its own 'id',
+    # which can differ from the JSON-RPC request/response 'id'. We prioritize
+    # the payload's ID for client-side correlation if it exists.
+    response_id = getattr(event, 'id', request_id)
+
+    response_data = event.model_dump(exclude_none=True)
+    response_data['id'] = response_id
+
+    validation_errors = validators.validate_message(response_data)
+    response_data['validation_errors'] = validation_errors
+
+    await _emit_debug_log(sid, response_id, 'response', response_data)
+    await sio.emit('agent_response', response_data, to=sid)
+
+
+def get_card_resolver(
+    client: httpx.AsyncClient, agent_card_url: str
+) -> A2ACardResolver:
+    """Returns an A2ACardResolver for the given agent card URL."""
+    parsed_url = urlparse(agent_card_url)
+    base_url = f'{parsed_url.scheme}://{parsed_url.netloc}'
+    path_with_query = urlunparse(
+        ('', '', parsed_url.path, '', parsed_url.query, '')
+    )
+    card_path = path_with_query.lstrip('/')
+    if card_path:
+        card_resolver = A2ACardResolver(
+            client, base_url, agent_card_path=card_path
+        )
+    else:
+        card_resolver = A2ACardResolver(client, base_url)
+
+    return card_resolver
+
+
+# ==============================================================================
+# FastAPI Routes
+# ==============================================================================
+
+
+@app.get('/', response_class=HTMLResponse)
+async def index(request: Request) -> HTMLResponse:
+    """Serve the main index.html page."""
+    return templates.TemplateResponse('index.html', {'request': request})
+
+
+@app.post('/agent-card')
+async def get_agent_card(request: Request) -> JSONResponse:
+    """Fetch and validate the agent card from a given URL."""
+    # 1. Parse request and get sid. If this fails, we can't do much.
+    try:
+        request_data = await request.json()
+        agent_url = request_data.get('url')
+        sid = request_data.get('sid')
+
+        if not agent_url or not sid:
+            return JSONResponse(
+                content={'error': 'Agent URL and SID are required.'},
+                status_code=400,
+            )
+    except Exception:
+        logger.warning('Failed to parse JSON from /agent-card request.')
+        return JSONResponse(
+            content={'error': 'Invalid request body.'}, status_code=400
+        )
+
+    # Extract custom headers from the request
+    custom_headers = {
+        name: value
+        for name, value in request.headers.items()
+        if name.lower() not in STANDARD_HEADERS
+    }
+
+    # 2. Log the request.
+    await _emit_debug_log(
+        sid,
+        'http-agent-card',
+        'request',
+        {
+            'endpoint': '/agent-card',
+            'payload': request_data,
+            'custom_headers': custom_headers,
+        },
+    )
+
+    # 3. Perform the main action and prepare response.
+    try:
+        async with httpx.AsyncClient(
+            timeout=30.0, headers=custom_headers
+        ) as client:
+            card_resolver = get_card_resolver(client, agent_url)
+            card = await card_resolver.get_agent_card()
+
+        card_data = card.model_dump(exclude_none=True)
+        validation_errors = validators.validate_agent_card(card_data)
+        response_data = {
+            'card': card_data,
+            'validation_errors': validation_errors,
+        }
+        response_status = 200
+
+    except httpx.RequestError as e:
+        logger.error(
+            f'Failed to connect to agent at {agent_url}', exc_info=True
+        )
+        response_data = {'error': f'Failed to connect to agent: {e}'}
+        response_status = 502  # Bad Gateway
+    except Exception as e:
+        logger.error('An internal server error occurred', exc_info=True)
+        response_data = {'error': f'An internal server error occurred: {e}'}
+        response_status = 500
+
+    # 4. Log the response and return it.
+    await _emit_debug_log(
+        sid,
+        'http-agent-card',
+        'response',
+        {'status': response_status, 'payload': response_data},
+    )
+    return JSONResponse(content=response_data, status_code=response_status)
+
+
+# ==============================================================================
+# Socket.IO Event Handlers
+# ==============================================================================
+
+
+@sio.on('connect')
+async def handle_connect(sid: str, environ: dict[str, Any]) -> None:
+    """Handle the 'connect' socket.io event."""
+    logger.info(f'Client connected: {sid}, environment: {environ}')
+
+
+@sio.on('disconnect')
+async def handle_disconnect(sid: str) -> None:
+    """Handle the 'disconnect' socket.io event."""
+    logger.info(f'Client disconnected: {sid}')
+    if sid in clients:
+        httpx_client, _, _ = clients.pop(sid)
+        await httpx_client.aclose()
+        logger.info(f'Cleaned up client for {sid}')
+
+
+@sio.on('initialize_client')
+async def handle_initialize_client(sid: str, data: dict[str, Any]) -> None:
+    """Handle the 'initialize_client' socket.io event."""
+    agent_card_url = data.get('url')
+
+    custom_headers = data.get('customHeaders', {})
+
+    if not agent_card_url:
+        await sio.emit(
+            'client_initialized',
+            {'status': 'error', 'message': 'Agent URL is required.'},
+            to=sid,
+        )
+        return
+    try:
+        httpx_client = httpx.AsyncClient(timeout=600.0, headers=custom_headers)
+        card_resolver = get_card_resolver(httpx_client, agent_card_url)
+        card = await card_resolver.get_agent_card()
+        a2a_client = A2AClient(httpx_client, agent_card=card)
+        clients[sid] = (httpx_client, a2a_client, card)
+        await sio.emit('client_initialized', {'status': 'success'}, to=sid)
+    except Exception as e:
+        logger.error(
+            f'Failed to initialize client for {sid}: {e}', exc_info=True
+        )
+        await sio.emit(
+            'client_initialized', {'status': 'error', 'message': str(e)}, to=sid
+        )
+
+
+@sio.on('send_message')
+async def handle_send_message(sid: str, json_data: dict[str, Any]) -> None:
+    """Handle the 'send_message' socket.io event."""
+    message_text = bleach.clean(json_data.get('message', ''))
+
+    message_id = json_data.get('id', str(uuid4()))
+    context_id = json_data.get('contextId')
+    metadata = json_data.get('metadata', {})
+
+    if sid not in clients:
+        await sio.emit(
+            'agent_response',
+            {'error': 'Client not initialized.', 'id': message_id},
+            to=sid,
+        )
+        return
+
+    _, a2a_client, card = clients[sid]
+
+    message = Message(
+        role=Role.user,
+        parts=[TextPart(text=str(message_text))],  # type: ignore[list-item]
+        message_id=message_id,
+        context_id=context_id,
+        metadata=metadata,
+    )
+    payload = MessageSendParams(
+        message=message,
+        configuration=MessageSendConfiguration(
+            accepted_output_modes=['text/plain', 'video/mp4']
+        ),
+    )
+
+    supports_streaming = (
+        hasattr(card.capabilities, 'streaming')
+        and card.capabilities.streaming is True
+    )
+
+    try:
+        if supports_streaming:
+            stream_request = SendStreamingMessageRequest(
+                id=message_id,
+                method='message/stream',
+                jsonrpc='2.0',
+                params=payload,
+            )
+            await _emit_debug_log(
+                sid,
+                message_id,
+                'request',
+                stream_request.model_dump(exclude_none=True),
+            )
+            response_stream = a2a_client.send_message_streaming(stream_request)
+            async for stream_result in response_stream:
+                await _process_a2a_response(stream_result, sid, message_id)
+        else:
+            send_message_request = SendMessageRequest(
+                id=message_id,
+                method='message/send',
+                jsonrpc='2.0',
+                params=payload,
+            )
+            await _emit_debug_log(
+                sid,
+                message_id,
+                'request',
+                send_message_request.model_dump(exclude_none=True),
+            )
+            send_result = await a2a_client.send_message(send_message_request)
+            await _process_a2a_response(send_result, sid, message_id)
+
+    except Exception as e:
+        logger.error(f'Failed to send message for sid {sid}', exc_info=True)
+        await sio.emit(
+            'agent_response',
+            {'error': f'Failed to send message: {e}', 'id': message_id},
+            to=sid,
+        )
+
+
+# ==============================================================================
+# Main Execution
+# ==============================================================================
+
+
+if __name__ == '__main__':
+    import uvicorn
+
+    # NOTE: The 'reload=True' flag is for development purposes only.
+    # In a production environment, use a proper process manager like Gunicorn.
+    uvicorn.run('app:app', host='127.0.0.1', port=5001, reload=True)
+
+================
+File: backend/pyproject.toml
+================
+[project]
+name = "a2a-inspector"
+version = "0.1.0"
+readme = "README.md"
+dependencies = []
+
+================
+File: backend/validators.py
+================
+from typing import Any
+
+
+def validate_agent_card(card_data: dict[str, Any]) -> list[str]:
+    """Validate the structure and fields of an agent card."""
+    errors: list[str] = []
+
+    # Use a frozenset for efficient checking and to indicate immutability.
+    required_fields = frozenset(
+        [
+            'name',
+            'description',
+            'url',
+            'version',
+            'capabilities',
+            'defaultInputModes',
+            'defaultOutputModes',
+            'skills',
+        ]
+    )
+
+    # Check for the presence of all required fields
+    for field in required_fields:
+        if field not in card_data:
+            errors.append(f"Required field is missing: '{field}'.")
+
+    # Check if 'url' is an absolute URL (basic check)
+    if 'url' in card_data and not (
+        card_data['url'].startswith('http://')
+        or card_data['url'].startswith('https://')
+    ):
+        errors.append(
+            "Field 'url' must be an absolute URL starting with http:// or https://."
+        )
+
+    # Check if capabilities is a dictionary
+    if 'capabilities' in card_data and not isinstance(
+        card_data['capabilities'], dict
+    ):
+        errors.append("Field 'capabilities' must be an object.")
+
+    # Check if defaultInputModes and defaultOutputModes are arrays of strings
+    for field in ['defaultInputModes', 'defaultOutputModes']:
+        if field in card_data:
+            if not isinstance(card_data[field], list):
+                errors.append(f"Field '{field}' must be an array of strings.")
+            elif not all(isinstance(item, str) for item in card_data[field]):
+                errors.append(f"All items in '{field}' must be strings.")
+
+    # Check skills array
+    if 'skills' in card_data:
+        if not isinstance(card_data['skills'], list):
+            errors.append(
+                "Field 'skills' must be an array of AgentSkill objects."
+            )
+        elif not card_data['skills']:
+            errors.append(
+                "Field 'skills' array is empty. Agent must have at least one skill if it performs actions."
+            )
+
+    return errors
+
+
+def _validate_task(data: dict[str, Any]) -> list[str]:
+    errors = []
+    if 'id' not in data:
+        errors.append("Task object missing required field: 'id'.")
+    if 'status' not in data or 'state' not in data.get('status', {}):
+        errors.append("Task object missing required field: 'status.state'.")
+    return errors
+
+
+def _validate_status_update(data: dict[str, Any]) -> list[str]:
+    errors = []
+    if 'status' not in data or 'state' not in data.get('status', {}):
+        errors.append(
+            "StatusUpdate object missing required field: 'status.state'."
+        )
+    return errors
+
+
+def _validate_artifact_update(data: dict[str, Any]) -> list[str]:
+    errors = []
+    if 'artifact' not in data:
+        errors.append(
+            "ArtifactUpdate object missing required field: 'artifact'."
+        )
+    elif (
+        'parts' not in data.get('artifact', {})
+        or not isinstance(data.get('artifact', {}).get('parts'), list)
+        or not data.get('artifact', {}).get('parts')
+    ):
+        errors.append("Artifact object must have a non-empty 'parts' array.")
+    return errors
+
+
+def _validate_message(data: dict[str, Any]) -> list[str]:
+    errors = []
+    if (
+        'parts' not in data
+        or not isinstance(data.get('parts'), list)
+        or not data.get('parts')
+    ):
+        errors.append("Message object must have a non-empty 'parts' array.")
+    if 'role' not in data or data.get('role') != 'agent':
+        errors.append("Message from agent must have 'role' set to 'agent'.")
+    return errors
+
+
+def validate_message(data: dict[str, Any]) -> list[str]:
+    """Validate an incoming message from the agent based on its kind."""
+    if 'kind' not in data:
+        return ["Response from agent is missing required 'kind' field."]
+
+    kind = data.get('kind')
+    validators = {
+        'task': _validate_task,
+        'status-update': _validate_status_update,
+        'artifact-update': _validate_artifact_update,
+        'message': _validate_message,
+    }
+
+    validator = validators.get(str(kind))
+    if validator:
+        return validator(data)
+
+    return [f"Unknown message kind received: '{kind}'."]
+
+================
+File: frontend/public/index.html
+================
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A2A Inspector</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <link rel="icon" href="https://a2aproject.github.io/A2A/latest/assets/a2a-logo-black.svg">
+</head>
+
+<body>
+    <div class="container">
+        <h1>A2A Inspector</h1>
+        <div class="url-input-container">
+            <input type="text" id="agent-card-url" placeholder="Enter Agent Card URL">
+        </div>
+        <div class="http-headers-container">
+            <div class="http-headers-header" id="http-headers-toggle">
+                <span class="toggle-icon">►</span> HTTP Headers
+            </div>
+            <div class="http-headers-content" id="http-headers-content">
+                <div id="headers-list">
+                    <!-- Headers will be added here dynamically -->
+                </div>
+                <button id="add-header-btn">+ Add Header</button>
+            </div>
+        </div>
+        <div class="connect-btn-container">
+            <button id="connect-btn">Connect</button>
+        </div>
+        <div id="agent-card-section">
+            <h2 class="collapsible-header">
+                <span class="toggle-icon">▼</span> Agent Card
+            </h2>
+            <div class="collapsible-content">
+                <div id="validation-errors">
+                    <p class="placeholder-text">Connect to an agent to see its card.</p>
+                </div>
+                <div class="agent-card-display">
+                    <pre><code id="agent-card-content" class="language-json"></code></pre>
+                </div>
+            </div>
+        </div>
+        <div id="chat-container">
+            <h2 class="chat-header">Chat</h2>
+            <p class="chat-info">
+                Messages from the agent are marked with ✅ (compliant) or ⚠️ (non-compliant). Click any message to view the raw JSON.
+            </p>
+            <div id="chat-messages">
+                <p class="placeholder-text">Messages will appear here.</p>
+            </div>
+            <div class="message-metadata-container">
+                <div class="message-metadata-header" id="message-metadata-toggle">
+                    <span class="toggle-icon">►</span> Message Metadata
+                </div>
+                <div class="message-metadata-content" id="message-metadata-content">
+                    <div id="metadata-list">
+                        <!-- Metadata will be added here dynamically -->
+                    </div>
+                    <button id="add-metadata-btn">+ Add Metadata</button>
+                </div>
+            </div>
+            <div class="chat-input-container">
+                <input type="text" id="chat-input" placeholder="Type a message..." disabled>
+                <button id="send-btn" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="debug-console" class="hidden">
+        <div id="debug-handle">
+            <span>Debug Console</span>
+            <div class="debug-controls">
+                <button id="clear-console-btn">Clear</button>
+                <button id="toggle-console-btn">Show</button>
+            </div>
+        </div>
+        <div id="debug-content"></div>
+    </div>
+
+    <div id="json-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <span class="modal-close-btn">&times;</span>
+            <h3>Raw JSON</h3>
+            <pre id="modal-json-content"></pre>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</body>
+
+</html>
+
+================
+File: frontend/public/styles.css
+================
+html,
+body {
+    height: 100%;
+    margin: 0;
+    font-family: sans-serif;
+    background-color: #f0f2f5;
+}
+
+body {
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.container {
+    max-width: 960px;
+    margin: 0 auto 100px auto;
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+h1,
+h2 {
+    color: #1c1e21;
+}
+
+.collapsible-header {
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-icon {
+    display: inline-block;
+    transition: transform 0.2s;
+}
+
+.collapsible-header.collapsed .toggle-icon {
+    transform: rotate(-90deg);
+}
+
+.collapsible-content {
+    max-height: 1000px;
+    overflow: hidden;
+    transition: max-height 0.3s ease-in-out;
+}
+
+.collapsible-content.collapsed {
+    max-height: 0;
+}
+
+#agent-card-section,
+#chat-container {
+    margin-top: 20px;
+    border-top: 1px solid #ddd;
+    padding-top: 20px;
+}
+
+.url-input-container,
+.chat-input-container {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.connect-btn-container {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 20px;
+}
+
+.http-headers-container,
+.message-metadata-container {
+    margin-bottom: 20px;
+}
+
+.http-headers-header,
+.message-metadata-header {
+    cursor: pointer;
+    user-select: none;
+    padding: 8px 0;
+    font-weight: bold;
+    color: #1c1e21;
+}
+
+.http-headers-content,
+.message-metadata-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-in-out;
+    padding: 0;
+    margin: 0;
+}
+
+.http-headers-content.expanded,
+.message-metadata-content.expanded {
+    max-height: 500px;
+    padding: 10px 0;
+}
+
+#headers-list,
+#metadata-list {
+    margin-bottom: 10px;
+}
+
+.header-item,
+.metadata-item {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.header-item input,
+.metadata-item input {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.remove-header-btn,
+.remove-metadata-btn {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 0 10px;
+    cursor: pointer;
+}
+
+#add-header-btn,
+#add-metadata-btn {
+    background-color: #1877f2;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+#agent-card-url,
+#chat-input {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+#connect-btn,
+#send-btn {
+    padding: 10px 15px;
+    border: none;
+    background-color: #1877f2;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#chat-input:disabled,
+#send-btn:disabled {
+    background-color: #e4e6eb;
+    cursor: not-allowed;
+}
+
+.agent-card-display {
+    position: relative;
+}
+
+#agent-card-content {
+    background-color: #f7f7f7;
+    padding: 15px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 400px;
+    overflow: auto;
+}
+
+#agent-card-content:empty {
+    display: none;
+}
+
+.message {
+    padding: 8px 12px;
+    border-radius: 18px;
+    margin-bottom: 8px;
+    max-width: 75%;
+    width: fit-content;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: flex;
+    /* <-- Fix: Use flexbox for alignment */
+    align-items: center;
+    /* <-- Fix: Align items vertically */
+}
+
+.message a {
+    color: #050505;
+    font-weight: bold;
+    text-decoration: underline;
+}
+
+.message:hover {
+    filter: brightness(95%);
+}
+
+.kind-chip {
+    background-color: #dcdfe3;
+    border: 1px solid #c8ccd1;
+    color: #050505;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: 500;
+    margin-right: 8px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.kind-chip-task {
+    background-color: #e0f2fe;
+    /* light blue */
+    border-color: #7dd3fc;
+    color: #0c4a6e;
+}
+
+.kind-chip-status-update {
+    background-color: #fefce8;
+    /* light yellow */
+    border-color: #fde047;
+    color: #713f12;
+}
+
+.kind-chip-artifact-update {
+    background-color: #dcfce7;
+    /* light green */
+    border-color: #86efac;
+    color: #14532d;
+}
+
+.kind-chip-message {
+    background-color: #f3e8ff;
+    /* light purple */
+    border-color: #d8b4fe;
+    color: #581c87;
+}
+
+.kind-chip-error {
+    background-color: #fef2f2;
+    /* light red */
+    border-color: #fca5a5;
+    color: #991b1b;
+}
+
+.message.user {
+    background-color: #0084ff;
+    color: white;
+    align-self: flex-end;
+}
+
+.message.agent {
+    background-color: #e4e6eb;
+    color: #050505;
+    align-self: flex-start;
+}
+
+.message.agent-progress {
+    background-color: #f0f0f0;
+    color: #65676b;
+    font-style: italic;
+    font-size: 0.9em;
+    align-self: flex-start;
+}
+
+.message.agent-error {
+    background-color: #fbe3e4;
+    color: #d12f2f;
+    border: 1px solid #f5c6cb;
+    align-self: flex-start;
+}
+
+/* <-- Fix: Styles for validation status */
+.validation-status {
+    margin-left: 8px;
+    font-size: 0.8em;
+}
+
+.validation-status.valid {
+    color: green;
+}
+
+.validation-status.invalid {
+    color: orange;
+}
+
+#debug-console {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 300px;
+    background: #2f3640;
+    color: #f5f6fa;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+    transform: translateY(0);
+    transition: transform 0.3s ease-in-out;
+}
+
+#debug-console.hidden {
+    transform: translateY(calc(100% - 40px));
+}
+
+#debug-handle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    height: 40px;
+    background: #1f2429;
+    cursor: ns-resize;
+    user-select: none;
+}
+
+.debug-controls button {
+    background: #4a4a4a;
+    border: 1px solid #666;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-left: 10px;
+}
+
+#toggle-console-btn {
+    background-color: #007bff;
+}
+
+#debug-content {
+    height: calc(100% - 40px);
+    overflow-y: auto;
+    padding: 10px;
+    font-family: monospace;
+    white-space: pre-wrap;
+}
+
+.log-entry {
+    padding: 8px;
+    border-radius: 4px;
+    margin-bottom: 5px;
+    border-left: 3px solid #ccc;
+}
+
+.log-entry strong {
+    font-weight: bold;
+    margin-right: 10px;
+}
+
+.log-timestamp {
+    color: #999;
+    margin-right: 10px;
+    font-size: 0.8em;
+}
+
+.log-entry.log-request {
+    background-color: rgba(0, 123, 255, 0.1);
+    border-left-color: #007bff;
+}
+
+.log-entry.log-response {
+    background-color: rgba(108, 117, 125, 0.1);
+    border-left-color: #6c757d;
+}
+
+.log-entry.log-error {
+    background-color: rgba(220, 53, 69, 0.1);
+    border-left-color: #dc3545;
+}
+
+.log-entry.log-validation_error {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-left-color: #ffc107;
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: #fff;
+    color: #1c1e21;
+    padding: 20px;
+    border-radius: 8px;
+    width: 80%;
+    max-width: 800px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.modal-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 20px;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    color: #555;
+}
+
+#modal-json-content {
+    background: #f7f7f7;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 15px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.json-highlight {
+    background-color: #ffc107;
+    color: #333;
+    padding: 0 4px;
+    border-radius: 3px;
+}
+
+#chat-messages {
+    height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    background-color: #f7f7f7;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-info {
+    font-size: 0.9em;
+    color: #65676b;
+    margin-top: 0;
+    text-align: center;
+}
+
+.placeholder-text {
+    color: #888;
+    text-align: center;
+    padding: 0;
+    margin: 0;
+}
+
+#validation-errors {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 20px;
+}
+
+#validation-errors .placeholder-text:only-child {
+    margin: auto;
+    padding: 20px;
+}
+
+.loader {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #1877f2;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+    margin: 0;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+================
+File: frontend/src/script.ts
+================
+import {io} from 'socket.io-client';
+import {marked} from 'marked';
+import DOMPurify from 'dompurify';
+
+interface AgentResponseEvent {
+  kind: 'task' | 'status-update' | 'artifact-update' | 'message';
+  id: string;
+  contextId?: string;
+  error?: string;
+  status?: {
+    state: string;
+    message?: {parts?: {text?: string}[]};
+  };
+  artifact?: {
+    parts?: (
+      | {file?: {uri: string; mimeType: string}}
+      | {text?: string}
+      | {data?: object}
+    )[];
+  };
+  parts?: {text?: string}[];
+  validation_errors: string[];
+}
+
+interface DebugLog {
+  type: 'request' | 'response' | 'error' | 'validation_error';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any;
+  id: string;
+}
+
+// Declare hljs global from CDN
+declare global {
+  interface Window {
+    hljs: {
+      highlightElement: (element: HTMLElement) => void;
+    };
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const socket = io();
+
+  const INITIALIZATION_TIMEOUT_MS = 10000;
+  const MAX_LOGS = 500;
+
+  const connectBtn = document.getElementById(
+    'connect-btn',
+  ) as HTMLButtonElement;
+  const agentCardUrlInput = document.getElementById(
+    'agent-card-url',
+  ) as HTMLInputElement;
+  const httpHeadersToggle = document.getElementById(
+    'http-headers-toggle',
+  ) as HTMLElement;
+  const httpHeadersContent = document.getElementById(
+    'http-headers-content',
+  ) as HTMLElement;
+  const headersList = document.getElementById('headers-list') as HTMLElement;
+  const addHeaderBtn = document.getElementById(
+    'add-header-btn',
+  ) as HTMLButtonElement;
+  const messageMetadataToggle = document.getElementById(
+    'message-metadata-toggle',
+  ) as HTMLElement;
+  const messageMetadataContent = document.getElementById(
+    'message-metadata-content',
+  ) as HTMLElement;
+  const metadataList = document.getElementById('metadata-list') as HTMLElement;
+  const addMetadataBtn = document.getElementById(
+    'add-metadata-btn',
+  ) as HTMLButtonElement;
+  const collapsibleHeader = document.querySelector(
+    '.collapsible-header',
+  ) as HTMLElement;
+  const collapsibleContent = document.querySelector(
+    '.collapsible-content',
+  ) as HTMLElement;
+  const agentCardCodeContent = document.getElementById(
+    'agent-card-content',
+  ) as HTMLElement;
+  const validationErrorsContainer = document.getElementById(
+    'validation-errors',
+  ) as HTMLElement;
+  const chatInput = document.getElementById('chat-input') as HTMLInputElement;
+  const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
+  const chatMessages = document.getElementById('chat-messages') as HTMLElement;
+  const debugConsole = document.getElementById('debug-console') as HTMLElement;
+  const debugHandle = document.getElementById('debug-handle') as HTMLElement;
+  const debugContent = document.getElementById('debug-content') as HTMLElement;
+  const clearConsoleBtn = document.getElementById(
+    'clear-console-btn',
+  ) as HTMLButtonElement;
+  const toggleConsoleBtn = document.getElementById(
+    'toggle-console-btn',
+  ) as HTMLButtonElement;
+  const jsonModal = document.getElementById('json-modal') as HTMLElement;
+  const modalJsonContent = document.getElementById(
+    'modal-json-content',
+  ) as HTMLPreElement;
+  const modalCloseBtn = document.querySelector(
+    '.modal-close-btn',
+  ) as HTMLElement;
+
+  let isResizing = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawLogStore: Record<string, Record<string, any>> = {};
+  const messageJsonStore: {[key: string]: AgentResponseEvent} = {};
+  const logIdQueue: string[] = [];
+  let initializationTimeout: ReturnType<typeof setTimeout>;
+  let isProcessingLogQueue = false;
+
+  debugHandle.addEventListener('mousedown', (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target === debugHandle || target.tagName === 'SPAN') {
+      isResizing = true;
+      document.body.style.userSelect = 'none';
+      document.body.style.pointerEvents = 'none';
+    }
+  });
+
+  window.addEventListener('mousemove', (e: MouseEvent) => {
+    if (!isResizing) return;
+    const newHeight = window.innerHeight - e.clientY;
+    if (newHeight > 40 && newHeight < window.innerHeight * 0.9) {
+      debugConsole.style.height = `${newHeight}px`;
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    isResizing = false;
+    document.body.style.userSelect = '';
+    document.body.style.pointerEvents = '';
+  });
+
+  collapsibleHeader.addEventListener('click', () => {
+    collapsibleHeader.classList.toggle('collapsed');
+    collapsibleContent.classList.toggle('collapsed');
+    collapsibleContent.style.overflow = 'hidden';
+  });
+
+  collapsibleContent.addEventListener('transitionend', () => {
+    if (!collapsibleContent.classList.contains('collapsed')) {
+      collapsibleContent.style.overflow = 'auto';
+    }
+  });
+
+  // Generic function to setup toggle functionality
+  function setupToggle(
+    toggleElement: HTMLElement,
+    contentElement: HTMLElement,
+  ) {
+    if (!toggleElement || !contentElement) return;
+    toggleElement.addEventListener('click', () => {
+      const isExpanded = contentElement.classList.toggle('expanded');
+      const toggleIcon = toggleElement.querySelector('.toggle-icon');
+      if (toggleIcon) {
+        toggleIcon.textContent = isExpanded ? '▼' : '►';
+      }
+    });
+  }
+
+  // Setup toggle functionality for both sections
+  setupToggle(httpHeadersToggle, httpHeadersContent);
+  setupToggle(messageMetadataToggle, messageMetadataContent);
+
+  // Add a new, empty header field when the button is clicked
+  addHeaderBtn.addEventListener('click', () => addHeaderField());
+
+  // Add a new, empty metadata field when the button is clicked
+  addMetadataBtn.addEventListener('click', () => addMetadataField());
+
+  // Generic function to setup remove item event listeners
+  function setupRemoveItemListener(
+    listElement: HTMLElement,
+    removeBtnSelector: string,
+    itemSelector: string,
+  ) {
+    listElement.addEventListener('click', event => {
+      const removeBtn = (event.target as HTMLElement).closest(
+        removeBtnSelector,
+      );
+      if (removeBtn) {
+        removeBtn.closest(itemSelector)?.remove();
+      }
+    });
+  }
+
+  // Setup remove item listeners
+  setupRemoveItemListener(headersList, '.remove-header-btn', '.header-item');
+  setupRemoveItemListener(
+    metadataList,
+    '.remove-metadata-btn',
+    '.metadata-item',
+  );
+
+  // Generic function to add key-value fields
+  function addKeyValueField(
+    list: HTMLElement,
+    classes: {item: string; key: string; value: string; removeBtn: string},
+    placeholders: {key: string; value: string},
+    removeLabel: string,
+    key = '',
+    value = '',
+  ) {
+    const itemHTML = `
+      <div class="${classes.item}">
+        <input type="text" class="${classes.key}" placeholder="${placeholders.key}" value="${key}">
+        <input type="text" class="${classes.value}" placeholder="${placeholders.value}" value="${value}">
+        <button type="button" class="${classes.removeBtn}" aria-label="${removeLabel}">×</button>
+      </div>
+    `;
+    list.insertAdjacentHTML('beforeend', itemHTML);
+  }
+
+  // Function to add a new header field
+  function addHeaderField(name = '', value = '') {
+    addKeyValueField(
+      headersList,
+      {
+        item: 'header-item',
+        key: 'header-name',
+        value: 'header-value',
+        removeBtn: 'remove-header-btn',
+      },
+      {key: 'Header Name', value: 'Header Value'},
+      'Remove header',
+      name,
+      value,
+    );
+  }
+
+  // Function to add a new metadata field
+  function addMetadataField(key = '', value = '') {
+    addKeyValueField(
+      metadataList,
+      {
+        item: 'metadata-item',
+        key: 'metadata-key',
+        value: 'metadata-value',
+        removeBtn: 'remove-metadata-btn',
+      },
+      {key: 'Metadata Key', value: 'Metadata Value'},
+      'Remove metadata',
+      key,
+      value,
+    );
+  }
+
+  // Generic function to collect key-value pairs from the DOM
+  function getKeyValuePairs(
+    list: HTMLElement,
+    itemSelector: string,
+    keySelector: string,
+    valueSelector: string,
+  ): Record<string, string> {
+    const items = list.querySelectorAll(itemSelector);
+    return Array.from(items).reduce(
+      (acc, item) => {
+        const keyInput = item.querySelector(keySelector) as HTMLInputElement;
+        const valueInput = item.querySelector(
+          valueSelector,
+        ) as HTMLInputElement;
+        const key = keyInput?.value.trim();
+        const value = valueInput?.value.trim();
+        if (key && value) {
+          acc[key] = value;
+        }
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
+  }
+
+  // Function to collect all headers
+  function getCustomHeaders(): Record<string, string> {
+    return getKeyValuePairs(
+      headersList,
+      '.header-item',
+      '.header-name',
+      '.header-value',
+    );
+  }
+
+  // Function to collect all metadata
+  function getMessageMetadata(): Record<string, string> {
+    return getKeyValuePairs(
+      metadataList,
+      '.metadata-item',
+      '.metadata-key',
+      '.metadata-value',
+    );
+  }
+
+  clearConsoleBtn.addEventListener('click', () => {
+    debugContent.innerHTML = '';
+    Object.keys(rawLogStore).forEach(key => delete rawLogStore[key]);
+    logIdQueue.length = 0;
+  });
+
+  toggleConsoleBtn.addEventListener('click', () => {
+    const isHidden = debugConsole.classList.toggle('hidden');
+    toggleConsoleBtn.textContent = isHidden ? 'Show' : 'Hide';
+  });
+
+  modalCloseBtn.addEventListener('click', () =>
+    jsonModal.classList.add('hidden'),
+  );
+  jsonModal.addEventListener('click', (e: MouseEvent) => {
+    if (e.target === jsonModal) {
+      jsonModal.classList.add('hidden');
+    }
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const showJsonInModal = (jsonData: any) => {
+    if (jsonData) {
+      let jsonString = JSON.stringify(jsonData, null, 2);
+      jsonString = jsonString.replace(
+        /"method": "([^"]+)"/g,
+        '<span class="json-highlight">"method": "$1"</span>',
+      );
+      modalJsonContent.innerHTML = jsonString;
+      jsonModal.classList.remove('hidden');
+    }
+  };
+
+  connectBtn.addEventListener('click', async () => {
+    let agentCardUrl = agentCardUrlInput.value.trim();
+    if (!agentCardUrl) {
+      alert('Please enter an agent card URL.');
+      return;
+    }
+
+    // If no protocol is specified, prepend http://
+    if (!/^[a-zA-Z]+:\/\//.test(agentCardUrl)) {
+      agentCardUrl = 'http://' + agentCardUrl;
+    }
+
+    // Validate that the URL uses http or https protocol
+    try {
+      const url = new URL(agentCardUrl);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error('Protocol must be http or https.');
+      }
+    } catch (error) {
+      alert(
+        'Invalid URL. Please enter a valid URL starting with http:// or https://.',
+      );
+      return;
+    }
+
+    agentCardCodeContent.textContent = '';
+    validationErrorsContainer.innerHTML =
+      '<div class="loader"></div><p class="placeholder-text">Fetching Agent Card...</p>';
+    chatInput.disabled = true;
+    sendBtn.disabled = true;
+
+    // Get custom headers
+    const customHeaders = getCustomHeaders();
+
+    // Prepare request headers
+    const requestHeaders = {
+      'Content-Type': 'application/json',
+      ...customHeaders,
+    };
+
+    try {
+      const response = await fetch('/agent-card', {
+        method: 'POST',
+        headers: requestHeaders,
+        body: JSON.stringify({url: agentCardUrl, sid: socket.id}),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP error! status: ${response.status}`);
+      }
+
+      agentCardCodeContent.textContent = JSON.stringify(data.card, null, 2);
+      if (window.hljs) {
+        window.hljs.highlightElement(agentCardCodeContent);
+      } else {
+        console.warn('highlight.js not loaded. Syntax highlighting skipped.');
+      }
+
+      validationErrorsContainer.innerHTML =
+        '<p class="placeholder-text">Initializing client session...</p>';
+
+      initializationTimeout = setTimeout(() => {
+        validationErrorsContainer.innerHTML =
+          '<p class="error-text">Error: Client initialization timed out.</p>';
+        chatInput.disabled = true;
+        sendBtn.disabled = true;
+      }, INITIALIZATION_TIMEOUT_MS);
+
+      socket.emit('initialize_client', {
+        url: agentCardUrl,
+        customHeaders: customHeaders,
+      });
+
+      if (data.validation_errors.length > 0) {
+        validationErrorsContainer.innerHTML = `<h3>Validation Errors</h3><ul>${data.validation_errors.map((e: string) => `<li>${e}</li>`).join('')}</ul>`;
+      } else {
+        validationErrorsContainer.innerHTML =
+          '<p style="color: green;">Agent card is valid.</p>';
+      }
+    } catch (error) {
+      clearTimeout(initializationTimeout);
+      validationErrorsContainer.innerHTML = `<p style="color: red;">Error: ${(error as Error).message}</p>`;
+      chatInput.disabled = true;
+      sendBtn.disabled = true;
+    }
+  });
+
+  socket.on(
+    'client_initialized',
+    (data: {status: string; message?: string}) => {
+      clearTimeout(initializationTimeout);
+      if (data.status === 'success') {
+        chatInput.disabled = false;
+        sendBtn.disabled = false;
+        chatMessages.innerHTML =
+          '<p class="placeholder-text">Ready to chat.</p>';
+        debugContent.innerHTML = '';
+        Object.keys(rawLogStore).forEach(key => delete rawLogStore[key]);
+        logIdQueue.length = 0;
+        Object.keys(messageJsonStore).forEach(
+          key => delete messageJsonStore[key],
+        );
+      } else {
+        validationErrorsContainer.innerHTML = `<p style="color: red;">Error initializing client: ${data.message}</p>`;
+      }
+    },
+  );
+
+  let contextId: string | null = null;
+
+  const sendMessage = () => {
+    const messageText = chatInput.value;
+    if (messageText.trim() && !chatInput.disabled) {
+      // Sanitize the user's input before doing anything else
+      const sanitizedMessage = DOMPurify.sanitize(messageText);
+
+      // Optional but recommended: prevent sending messages that are empty after sanitization
+      if (!sanitizedMessage.trim()) {
+        chatInput.value = '';
+        return;
+      }
+
+      const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const metadata = getMessageMetadata();
+
+      // Use the sanitized message when displaying it locally
+      appendMessage('user', sanitizedMessage, messageId);
+
+      // Use the sanitized message when sending it to the server, along with metadata
+      socket.emit('send_message', {
+        message: sanitizedMessage,
+        id: messageId,
+        contextId,
+        metadata,
+      });
+      chatInput.value = '';
+    }
+  };
+
+  sendBtn.addEventListener('click', sendMessage);
+  chatInput.addEventListener('keypress', (e: KeyboardEvent) => {
+    if (e.key === 'Enter') sendMessage();
+  });
+
+  socket.on('agent_response', (event: AgentResponseEvent) => {
+    const displayMessageId = `display-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    messageJsonStore[displayMessageId] = event;
+
+    const validationErrors = event.validation_errors || [];
+
+    if (event.error) {
+      const messageHtml = `<span class="kind-chip kind-chip-error">error</span> Error: ${DOMPurify.sanitize(event.error)}`;
+      appendMessage(
+        'agent error',
+        messageHtml,
+        displayMessageId,
+        true,
+        validationErrors,
+      );
+      return;
+    }
+
+    if (event.contextId) contextId = event.contextId;
+
+    switch (event.kind) {
+      case 'task':
+        if (event.status) {
+          const messageHtml = `<span class="kind-chip kind-chip-task">${event.kind}</span> Task created with status: ${DOMPurify.sanitize(event.status.state)}`;
+          appendMessage(
+            'agent progress',
+            messageHtml,
+            displayMessageId,
+            true,
+            validationErrors,
+          );
+        }
+        break;
+      case 'status-update': {
+        const statusText = event.status?.message?.parts?.[0]?.text;
+        if (statusText) {
+          const renderedContent = DOMPurify.sanitize(
+            marked.parse(statusText) as string,
+          );
+          const messageHtml = `<span class="kind-chip kind-chip-status-update">${event.kind}</span> Server responded with: ${renderedContent}`;
+          appendMessage(
+            'agent progress',
+            messageHtml,
+            displayMessageId,
+            true,
+            validationErrors,
+          );
+        }
+        break;
+      }
+      case 'artifact-update':
+        event.artifact?.parts?.forEach(p => {
+          let content: string | null = null;
+
+          if ('text' in p && p.text) {
+            content = DOMPurify.sanitize(marked.parse(p.text) as string);
+          } else if ('file' in p && p.file) {
+            const {uri, mimeType} = p.file;
+            const sanitizedMimeType = DOMPurify.sanitize(mimeType);
+            const sanitizedUri = DOMPurify.sanitize(uri);
+            content = `File received (${sanitizedMimeType}): <a href="${sanitizedUri}" target="_blank" rel="noopener noreferrer">Open Link</a>`;
+          } else if ('data' in p && p.data) {
+            content = `<pre><code>${DOMPurify.sanitize(JSON.stringify(p.data, null, 2))}</code></pre>`;
+          }
+
+          if (content !== null) {
+            const kindChip = `<span class="kind-chip kind-chip-artifact-update">${event.kind}</span>`;
+            const messageHtml = `${kindChip} ${content}`;
+
+            appendMessage(
+              'agent',
+              messageHtml,
+              displayMessageId,
+              true,
+              validationErrors,
+            );
+          }
+        });
+        break;
+      case 'message': {
+        const textPart = event.parts?.find(p => p.text);
+        if (textPart && textPart.text) {
+          const renderedContent = DOMPurify.sanitize(
+            marked.parse(textPart.text) as string,
+          );
+          const messageHtml = `<span class="kind-chip kind-chip-message">${event.kind}</span> ${renderedContent}`;
+          appendMessage(
+            'agent',
+            messageHtml,
+            displayMessageId,
+            true,
+            validationErrors,
+          );
+        }
+        break;
+      }
+    }
+  });
+
+  function processLogQueue() {
+    if (isProcessingLogQueue) return;
+    isProcessingLogQueue = true;
+
+    while (logIdQueue.length > MAX_LOGS) {
+      const oldestKey = logIdQueue.shift();
+      if (
+        oldestKey &&
+        Object.prototype.hasOwnProperty.call(rawLogStore, oldestKey)
+      ) {
+        delete rawLogStore[oldestKey];
+      }
+    }
+    isProcessingLogQueue = false;
+  }
+
+  socket.on('debug_log', (log: DebugLog) => {
+    const logEntry = document.createElement('div');
+    const timestamp = new Date().toLocaleTimeString();
+
+    let jsonString = JSON.stringify(log.data, null, 2);
+    jsonString = jsonString.replace(
+      /"method": "([^"]+)"/g,
+      '<span class="json-highlight">"method": "$1"</span>',
+    );
+
+    logEntry.className = `log-entry log-${log.type}`;
+    logEntry.innerHTML = `
+            <div>
+                <span class="log-timestamp">${timestamp}</span>
+                <strong>${log.type.toUpperCase()}</strong>
+            </div>
+            <pre>${jsonString}</pre>
+        `;
+    debugContent.appendChild(logEntry);
+
+    if (!rawLogStore[log.id]) {
+      rawLogStore[log.id] = {};
+    }
+    rawLogStore[log.id][log.type] = log.data;
+    logIdQueue.push(log.id);
+    setTimeout(processLogQueue, 0);
+    debugContent.scrollTop = debugContent.scrollHeight;
+  });
+
+  function appendMessage(
+    sender: string,
+    content: string,
+    messageId: string,
+    isHtml = false,
+    validationErrors: string[] = [],
+  ) {
+    const placeholder = chatMessages.querySelector('.placeholder-text');
+    if (placeholder) placeholder.remove();
+
+    const messageElement = document.createElement('div');
+    messageElement.className = `message ${sender.replace(' ', '-')}`;
+
+    const messageContent = document.createElement('div');
+    messageContent.className = 'message-content';
+
+    if (isHtml) {
+      messageContent.innerHTML = content;
+    } else {
+      messageContent.textContent = content;
+    }
+
+    messageElement.appendChild(messageContent);
+
+    const statusIndicator = document.createElement('span');
+    statusIndicator.className = 'validation-status';
+    if (sender !== 'user') {
+      if (validationErrors.length > 0) {
+        statusIndicator.classList.add('invalid');
+        statusIndicator.textContent = '⚠️';
+        statusIndicator.title = validationErrors.join('\n');
+      } else {
+        statusIndicator.classList.add('valid');
+        statusIndicator.textContent = '✅';
+        statusIndicator.title = 'Message is compliant';
+      }
+      messageElement.appendChild(statusIndicator);
+    }
+
+    messageElement.addEventListener('click', (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName !== 'A') {
+        const jsonData =
+          sender === 'user'
+            ? rawLogStore[messageId]?.request
+            : messageJsonStore[messageId];
+        showJsonInModal(jsonData);
+      }
+    });
+
+    chatMessages.appendChild(messageElement);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+});
+
+================
+File: frontend/.editorconfig
+================
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
+insert_final_newline = true
+
+================
+File: frontend/.eslintignore
+================
+build/
+public/script.js
+
+================
+File: frontend/.eslintrc.json
+================
+{
+  "extends": "./node_modules/gts/"
+}
+
+================
+File: frontend/.prettierrc.js
+================
+module.exports = {
+  ...require('gts/.prettierrc.json')
+}
+
+================
+File: frontend/package.json
+================
+{
+  "name": "a2a-inspector-frontend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "esbuild src/script.ts --bundle --outfile=public/script.js --platform=browser",
+    "lint": "gts lint",
+    "clean": "gts clean",
+    "compile": "tsc",
+    "fix": "gts fix",
+    "prepare": "npm run compile",
+    "pretest": "npm run compile",
+    "posttest": "npm run lint"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dompurify": "^3.2.6",
+    "marked": "^16.0.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.13",
+    "esbuild": "^0.25.6",
+    "gts": "^6.0.2",
+    "typescript": "^5.8.3"
+  }
+}
+
+================
+File: frontend/tsconfig.json
+================
+{
+  "extends": "./node_modules/gts/tsconfig-google.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "build",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["es2017", "dom"],
+    "target": "es2017",
+    "moduleResolution": "bundler",
+    "module": "esnext",
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
+
+
+
+
+================================================================
+End of Codebase
+================================================================

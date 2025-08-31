@@ -1,0 +1,442 @@
+
+- Context 없이도 전역 상태 가능
+- 설정이 거의 없고 코드가 매우 직관적
+- 필요한 미들웨어만 골라 쓰는 유연함
+- TypeScript와 궁합이 잘 맞음
+- persist, devtools, immer 등의 미들웨어를 활용하면 실무에서 바로 적용 가능한 수준의 확장성을 가질 수 있습니다. 
+
+각각의 유용한 미들웨어들을 "언제, 왜, 어떻게 쓰는지" 실전 관점에서 소개해드리려 합니다.
+ 
+1. persist
+persist는 상태를 브라우저의 localStorage 또는 sessionStorage에 저장해, 새로고침하거나 브라우저를 껐다 켜도 상태를 유지하게 해주는 미들웨어입니다.
+ 
+💡 언제 쓰면 좋을까요?
+
+- 로그인 상태 유지
+- 사용자 설정 (예,테마, 언어, 필터 조건) 저장
+- 임시 폼 데이터 저장
+1) 기본 사용법
+```
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+const useBearStore = create(
+  persist(
+    (set) => ({
+      bears,0,
+      increase,() => set((state) => ({ bears,state.bears + 1 })),
+    }),
+    {
+      name,'bear-storage', // localStorage key 이름
+    }
+  )
+);
+```
+이렇게 하면 bears 상태가 localStorage에 저장됩니다. 브라우저에서 새로고침해도 상태가 유지됩니다.
+
+
+2) storage 지정하기 (localStorage vs sessionStorage)
+```
+import { persist } from 'zustand/middleware';
+
+persist(..., {
+  name,'user-prefs',
+  storage,() => sessionStorage, // 기본은 localStorage
+});
+```
+localStorage,브라우저를 닫았다 열어도 유지됨
+sessionStorage,탭을 닫으면 사라짐
+
+3) 특정 상태만 저장/제외하기
+✅ partialize 옵션,일부 상태만 저장
+
+```
+persist((set, get) => ({
+  token,'',
+  theme,'dark',
+  tempValue,'',
+}), {
+  name,'user-store',
+  partialize,(state) => ({ token,state.token, theme,state.theme })
+})
+```
+-> tempValue는 저장되지 않고, token, theme만 저장됩니다.
+ 
+✅ skipHydration 옵션,초기 로딩 상태를 제어하고 싶을 때
+persist 미들웨어는 localStorage, sessionStorage에 저장된 값을 앱이 시작할 때 스토어에 복원(hydration) 합니다.
+하지만 Next.js처러 SSR을 사용하는 경우, 서버에서는 localStorage 접근이 불가능하기 때문에 초기 상태와 클라이언트에서 복원된 상태가 불일치할 수 있습니다.
+이럴 때 skipHydration,true 옵션을 사용하면
+
+앱이 hydration을 끝낼 때까지 persisted된 상태를 적용하지 않고,
+개발자가 직접 rehydrate()를 호출할 수 있도록 합니다.
+즉 서버에서는 기본값만 보여주고, 클라이언트에서 명시적으로 복원하도록 제어할 수 있습니다.
+[문제 상황 예시]
+
+```
+// userStore.ts
+const useUserStore = create(
+  persist(
+    (set) => ({
+      user,null,
+      setUser,(user) => set({ user }),
+    }),
+    {
+      name,'user-store',
+      skipHydration,false, // 기본값
+    }
+  )
+);
+```
+위의 경우
+
+서버에서는 user === null (localStorage 접근 불가)
+클라이언트에서는 user === { id,1, name,'Lucy' } (localStorage에서 복원 됨)
+Next.js는 이 상태 불일치 때문에 "hydration mismatch" 경고를 콘솔에 띄우거나 렌더가 깜빡일 수 있습니다.
+ 
+[해결 방법,skipHydration,true]
+
+```
+// store/userStore.ts
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+type User = { id,number; name,string } | null;
+
+export const useUserStore = create(
+  persist<UserStore>(
+    (set) => ({
+      user,null,
+      setUser,(user) => set({ user }),
+    }),
+    {
+      name,'user-store',
+      skipHydration,true,
+    }
+  )
+);
+// layout or _app.tsx
+import { useEffect } from 'react';
+import { useUserStore } from '@/store/userStore';
+
+export default function App({ Component, pageProps }) {
+  const rehydrate = useUserStore.persist.rehydrate;
+  const hasHydrated = useUserStore.persist.hasHydrated;
+
+  useEffect(() => {
+    rehydrate(); // 클라이언트에서 수동 복원
+  }, []);
+
+  if (!hasHydrated()) {
+    return <div>로딩 중...</div>; // 상태 복원되기 전까지 보여줄 UI
+  }
+
+  return <Component {...pageProps} />;
+}
+```
+
+hydration 전/후 렌더링 UI를 구분해서 로딩 중 또는 스켈레톤 화면을 제공하면 UX 향상에도 도움이 될 수 있습니다.
+이 hydration 옵션은 CSR-only SPA의 경우에는 굳이 안 써도 되고,
+Next.js 처럼 SSR인 경우, 로그인, 토큰, 장바구니 등 초기 상태가 중요한 경우, 상태 깜빡임이나 hydration mismatch 경고가 뜰 때 사용하는 것이 권장됩니다.
+
+
+4) 사용 예시
+✅ 로그인 상태 유지
+
+```
+const useAuthStore = create(
+  persist(
+    (set) => ({
+      token,null,
+      login,(token) => set({ token }),
+      logout,() => set({ token,null }),
+    }),
+    {
+      name,'auth-token',
+      partialize,(state) => ({ token,state.token }),
+    }
+  )
+);
+```
+
+새로고침해도 사용자가 로그인된 상태를 유지할 수 있습니다.
+토큰 만료 시간까지 함께 저장하면 더 안전하게 구현할 수 있습니다.
+ 
+✅ 다크모드 설정 유지
+```
+const useThemeStore = create(
+  persist(
+    (set) => ({
+      theme,'light',
+      toggleTheme,() =>
+        set((state) => ({
+          theme,state.theme === 'light' ? 'dark' ,'light',
+        })),
+    }),
+    {
+      name,'theme-preference',
+    }
+  )
+);
+```
+
+5) ⚠️ 주의할 점
+localStorage는 브라우저에서만 작동합니다. SSR 환경에서는 접근 시 오류가 날 수 있습니다.
+너무 많은 데이터를 저장하면 안 됩니다. 브라우저 저장소에는 용량 제한이 있습니다.
+민감한 정보를 그대로 저장하면 안 됩니다. accessToken 등은 가능한 한 httpOnly 쿠키로 관리하는 것이 좋습니다.
+ 
+
+2. devtools
+devtools 미들웨어는 Zustand 스토어를 Redux DevTools 확장 프로그램과 연결해줍니다.
+
+스토어의 상태 변화 내역 (history) 을 시각적으로 추적 가능
+상태 변경 시점에 어떤 액션(set 함수)이 실행됐는지 확인 가능
+이전 상태로 "타임 트래블 디버깅" 가능
+즉, 상태가 어떻게 바뀌었는지를 기록하고, 그 히스토리를 따라가면서 "왜 이런 상태가 되었는가?"를 파악할 수 있는 도구입니다.
+ 
+💡 언제 쓰면 좋을까요?
+
+- 복잡한 상태 흐름이 있는 앱 -> 상태 변화 추적이 어려울 때 원인을 빠르게 파악 가능
+- 상태가 엉키는 버그 디버깅 -> 어떤 액션이 어떤 값을 만들었는지 시각적으로 확인
+- 팀 프로젝트 -> 동료에게 상태 흐름 설명할 때도 명확하게 보여줄 수 있음
+- Redux에서 Zustand로 마이그레이션 중 -> 익숙한 DevTools로 상태 확인 가능
+
+1) 사용 예시
+```
+import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
+
+interface CounterState {
+  count,number;
+  increase,() => void;
+  decrease,() => void;
+  reset,() => void;
+}
+
+export const useCounterStore = create<CounterState>()(
+  devtools(
+    (set) => ({
+      count,0,
+      increase,() => set((state) => ({ count,state.count + 1 }), false, 'counter/increase'),
+      decrease,() => set((state) => ({ count,state.count - 1 }), false, 'counter/decrease'),
+      reset,() => set({ count,0 }, false, 'counter/reset'),
+    }),
+    {
+      name,'CounterStore',
+      enabled,process.env.NODE_ENV === 'development'
+    },
+  )
+);
+```
+ 
+✅ 액션 이름 지정
+set 함수의 세 번째 인자로 액션 이름을 지정하면 DevTools에서 로그 추적이 쉬워집니다.
+
+set((state) => ({ count,state.count + 1 }), false, 'counter/increase');
+ 
+✅  DevTools에서 스토어 구분하기
+여러 Zustand 스토어가 있다면 name 옵션으로 식별하기 쉽게 설정할 수 있습니다.
+```
+{
+  name,'CounterStore'
+}
+```
+
+✅  배포 시 DevTools 비활성화
+프로덕션에서는 DevTools 사용을 꺼두는 것이 일반적입니다. enabled 옵션을 통해 제어할 수 있습니다.
+
+```
+{
+  enabled,process.env.NODE_ENV === 'development'
+}
+```
+2) Redux DevTools 확장 설치
+브라우저에 Redux DevTools Extension 설치 하여야 크롬 개발자 도구에서 확인할 수 있습니다.
+
+3) 실행 확인
+위 코드를 실행 후 브라우저에서 버튼을 누를 때마다 Redux DevTools에서 상태 변화 로그가 아래처럼 보입니다.
+
+4) DevTools에서 확인 가능한 기능
+Action History,어떤 액션(set)이 호출됐는지 로그로 확인
+State Diff,이전 상태와 변경된 상태 비교 가능
+Time Travel,특정 시점의 상태로 되돌아가기
+Action Replay,액션을 다시 실행해 재현 가능
+
+5) ⚠️ 주의할 점
+프로덕션에서는 반드시 꺼야 합니다.
+Redux DevTools 확장이 없으면 동작하지 않습니다.
+액션 이름을 지정하지 않으면 전부 'anonymous'로 보입니다.
+동일한 상태 변화는 DevTools에 기록되지 않습니다.
+배열이나 객체의 참조 유지에 주의해야 합니다.
+ 
+
+3. immer
+immer는 JavaScript 객체의 불변성(immutability)을 자동으로 유지하면서, 마치 직접 상태를 수정하는 것처럼 코드를 작성할 수 있게 도와주는 라이브러리입니다.
+Zustand에서 immer 미들웨어를 사용하려면 set((state) => { ... }) 내부에서 자유롭게 상태를 변경하듯 코드를 작성해도, 실제로는 불변성이 보장된 새로운 상태 객체가 만들어집니다.
+즉, immer를 통해 우리는 불변성 유지 + 가독성 높은 코드를 동시에 얻을 수 있습니다.
+ 
+💡 언제 쓰면 좋을까요?
+
+- 배열 추가/삭제/정렬 -> 복잡한 spread 연산 없이 직관적으로 가능
+- 깊게 중첩된 객체 수정 -> 불변성을 직접 관리하지 않아도 안전하게 처리
+- Redux Toolkit에 익숙한 경우 -> draft 방식과 매우 유사한 경험 제공
+- 상태 구조가 점점 복잡해질 때 -> 코드가 간결하고 유지보수가 쉬움
+
+1) 사용 예시
+```
+import { create } from 'zustand';
+import { immer } from 'zustand/middleware/immer';
+
+interface Todo {
+  id,number;
+  text,string;
+  done,boolean;
+}
+
+interface TodoState {
+  todos,Todo[];
+  addTodo,(text,string) => void;
+  toggleTodo,(id,number) => void;
+  removeTodo,(id,number) => void;
+}
+
+export const useTodoStore = create<TodoState>()(
+  immer((set) => ({
+    todos,[],
+    addTodo,(text) =>
+      set((state) => {
+        state.todos.push({ id,Date.now(), text, done,false });
+      }),
+    toggleTodo,(id) =>
+      set((state) => {
+        const todo = state.todos.find((t) => t.id === id);
+        if (todo) todo.done = !todo.done;
+      }),
+    removeTodo,(id) =>
+      set((state) => {
+        state.todos = state.todos.filter((t) => t.id !== id);
+      }),
+  }))
+);
+```
+
+배열에 todo 추가할 때 .push() 사용 가능
+특정 항목만 수정할 때 .find()로 접근 후 직접 수정
+불변성을 고려한 복잡한 로직 없이도 안정적인 상태 관리 가능
+
+2) 실전 팁
+상태가 복잡할수록 immer는 빛난다
+
+```
+set((state) => {
+  state.user.profile.avatar = 'new-avatar.png';
+  state.settings.theme = 'dark';
+});
+```
+위처럼 깊은 상태 구조도 쉽게 수정 가능
+spread 연산(...) 없이 깔끔한 코드 작성
+immer는 상태를 "draft 객체"로 다룬다
+
+set 내부의 state는 실제 상태가 아니라, immer가 제공하는 가상의 상태 복사본입니다.
+여기에 직접 수정을 해도 실제 상태에는 불변성을 유지한 채 적용됩니다.
+3) immer vs 수동 불변성 관리 비교
+불변성 직접 관리 (가독성 ↓)
+```
+set((state) => ({
+  todos,[...state.todos, { id,1, text,'hi', done,false }],
+}));
+```
+immer 사용 (가독성 ↑)
+
+```
+set((state) => {
+  state.todos.push({ id,1, text,'hi', done,false });
+});
+```
+4) ⚠️ 주의할 점
+set({ ... }) 방식과 혼용에 주의해야 합니다.
+무조건 immer를 쓸 필요는 없습니다. 간단한 상태일 경우엔 오히려 코드가 복잡해집니다.
+ 
+
+4. combine
+combine은 Zustand 스토어에서 상태 값과 액션을 명확히 분리해 작성할 수 있도록 도와주는 미들웨어입니다. 특히 상태와 로직이 뒤섞이기 쉬운 복잡한 앱에서 가독성과 유지보수성을 크게 높여줍니다.
+ 
+💡 언제 쓰면 좋을까요?
+
+상태와 액션을 Slice 패턴처럼 분리하고 싶을 때
+TypeScript를 쓸 때 상태 타입과 액션 타입을 명확히 구분하고 싶을 때
+하나의 스토어에 상태 값과 함수가 뒤엉켜서 복잡도가 높아질 때
+1) 사용 예시
+
+```
+import { create } from 'zustand';
+import { combine } from 'zustand/middleware';
+
+const useUserStore = create(
+  combine(
+    { user,null as null | { id,string; name,string } }, // 초기 상태
+    (set) => ({
+      setUser,(user,{ id,string; name,string }) => set({ user }),
+      logout,() => set({ user,null }),
+    })
+  )
+);
+```
+combine(state, actions) 구조로 작성이 일관성 있고 예측 가능함
+상태와 액션을 각각 타입화하기 쉬워 TypeScript 친화적
+여러 상태를 모듈처럼 Slice 단위로 관리 가능
+
+2) 실전 팁
+여러 도메인 상태를 분리하고 싶다면, combine을 여러 개 만들어 store를 나눌 수 있습니다.
+zustand + combine은 Redux의 slice 패턴과 매우 유사하여, Redux 경험자가 쉽게 적응할 수 있습니다.
+
+3) ⚠️ 주의할 점
+combine은 단일 레벨에서만 작동하여 하위에 또 다른 combime을 중첩할 수 없습니다.
+상태 초기값과 액션 모두 정확히 분리해야 합니다.
+타입스크립트 사용 시 combine<State, Actions> 제네릭 명시가 필요할 수 있습니다.
+set은 항상 상태 전체가 아닌 부분만 갱신해야 합니다.
+ 
+
+5. sucscribeWithSelector
+기본적으로 Zustand는 .subscribe()를 제공하지만, subscribeWithSelector를 사용하면 특정 상태 변화에만 반응할 수 있습니다.
+불필요한 이벤트 감지를 피하면서도 원하는 조건에서만 반응하게 할 수 있어 퍼포먼스에 민감한 앱에 특히 유용합니다.
+ 
+💡 언제 쓰면 좋을까요?
+
+- 상태 변화에 따라 애니메이션, 알림, 로깅 등 부수 효과(side effect)가 필요한 경우
+- 특정 조건을 만족했을 때만 특정 동작을 실행하고 싶은 경우
+- 컴포넌트 바깥에서도 상태 변화에 반응하고 싶을 때
+- Analytics, 이벤트 추적, A/B 테스트 등 외부 시스템 연동
+
+1) 사용 예시
+```
+import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
+
+const useTimerStore = create(
+  subscribeWithSelector((set) => ({
+    seconds,0,
+    increment,() => set((state) => ({ seconds,state.seconds + 1 })),
+  }))
+);
+```
+
+구독 예시
+```
+useTimerStore.subscribe(
+  (state) => state.seconds,           // 어떤 값을 추적할지
+  (seconds) => {
+    if (seconds === 60) {
+      alert('1분이 지났습니다!');
+    }
+  }
+);
+```
+이 구독은 상태의 변화 중에서도 seconds 값이 바뀔 때만 실행됩니다.
+ 
+컴포넌트 외부에서도 상태 변화에 리액션이 가능합니다.
+불필요한 트리거 없이 정교하게 상태 추적이 가능합니다.
+조건부 로직을 깔끔하게 분리할 수 있습니다.
+
+2) ⚠️ 주의할 점
+subscribeWithSelector는 모든 상태 변경을 다 추적할 수도 있으므로, 꼭 필요한 상태만 지정해야 리소스를 절약할 수 있습니다.
+상태가 너무 자주 변하는 값(예,마우스 위치, 타이머 등)을 subscribe할 경우, 성능 최적화가 필요할 수 있습니다.
