@@ -73,7 +73,6 @@ class TavilySearchClient(BaseMCPClient):
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         )
 
-    @MiddlewareManager.apply_all("재시도 로직")
     async def _retry_with_backoff(self, func, *args, **kwargs):
         """지수 백오프를 사용한 재시도 로직"""
         for attempt in range(self.max_retries):

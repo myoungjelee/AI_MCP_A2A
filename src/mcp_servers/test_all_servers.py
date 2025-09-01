@@ -17,12 +17,12 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 # 상대 경로로 import (IDE 경고 해결)
-from .financial_analysis.server import FinancialAnalysisMCPServer
-from .kiwoom.server import KiwoomMCPServer
-from .macroeconomic.server import MacroeconomicMCPServer
-from .naver_news.server import NaverNewsMCPServer
-from .stock_analysis.server import StockAnalysisMCPServer
-from .tavily_search.server import TavilySearchMCPServer
+from src.mcp_servers.financial_analysis.server import FinancialAnalysisMCPServer
+from src.mcp_servers.kiwoom.server import KiwoomMCPServer
+from src.mcp_servers.macroeconomic.server import MacroeconomicMCPServer
+from src.mcp_servers.naver_news.server import NaverNewsMCPServer
+from src.mcp_servers.stock_analysis.server import StockAnalysisMCPServer
+from src.mcp_servers.tavily_search.server import TavilySearchMCPServer
 
 logger = logging.getLogger(__name__)
 

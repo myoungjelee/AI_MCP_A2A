@@ -86,7 +86,6 @@ class KiwoomClient:
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         )
 
-    @MiddlewareManager.apply_all("키움 API 연결")
     async def connect_to_kiwoom(
         self, app_key: str, app_secret: str, account_no: str
     ) -> bool:

@@ -9,6 +9,7 @@ Naver News MCP Server
 - 시장 임팩트 평가
 """
 
-from src.mcp_servers.naver_news.server import NaverNewsMCPServer
+from .client import NewsClient
+from .server import NaverNewsMCPServer
 
-__all__ = ["NaverNewsMCPServer"]
+__all__ = ["NewsClient", "NaverNewsMCPServer"]

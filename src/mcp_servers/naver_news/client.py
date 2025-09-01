@@ -6,7 +6,8 @@
 
 import logging
 import os
-from typing import Any
+from datetime import datetime
+from typing import Any, Dict
 
 from dotenv import load_dotenv
 
@@ -136,7 +137,6 @@ class NewsClient(BaseHTTPClient):
 
     # === 뉴스 수집 메서드들 ===
 
-    @MiddlewareManager.apply_all("뉴스 검색")
     async def search_news(
         self,
         query: str,
@@ -191,49 +191,56 @@ class NewsClient(BaseHTTPClient):
             logger.error(f"News search error: {e}")
             raise NewsAnalysisError(f"News search failed: {e}", "SEARCH_ERROR") from e
 
-    @MiddlewareManager.apply_all("주식 관련 뉴스 수집")
     async def get_stock_related_news(
-        self,
-        symbol: str,
-        company_name: str,
-        days_back: int = 7,
-        max_articles: int = 20,
-    ) -> list[dict[str, Any]]:
+        self, stock_symbol: str, max_results: int = 5
+    ) -> Dict[str, Any]:
         """주식 관련 뉴스 수집"""
         try:
-            # 검색어 조합
-            search_queries = [symbol]
-            if company_name:
-                search_queries.append(" " + company_name)
-                search_queries.append(f"{company_name} 주가")
-                search_queries.append(f"{company_name} 실적")
+            # 캐시 키 생성
+            cache_key = self._get_cache_key(
+                "stock_news", {"symbol": stock_symbol, "max": max_results}
+            )
 
-            all_news = []
-            articles_per_query = max_articles // len(search_queries)
+            # 캐시 확인
+            if self._is_cache_valid(cache_key):
+                logger.info(f"캐시 히트: 주식 뉴스 {stock_symbol}")
+                return self._cache[cache_key]
 
-            for query in search_queries:
-                try:
-                    news_items = await self.search_news(query, articles_per_query)
-                    all_news.extend(news_items)
+            # 실제 주식 관련 뉴스 수집
+            logger.info(f"주식 관련 뉴스 수집: {stock_symbol}")
 
-                except Exception as e:
-                    logger.warning(f"Failed to search for query '{query}': {e}")
-                    continue
+            # 주식 심볼로 뉴스 검색
+            query = f"{stock_symbol} 주식"
+            news_result = await self.search_news(query, max_results)
 
-            # 중복 제거 및 관련성 순 정렬
-            unique_news = {}
-            for news in all_news:
-                link = news.get("link", "")
-                if link and link not in unique_news:
-                    unique_news[link] = news
+            # 주식 관련 뉴스로 필터링
+            stock_news = []
+            for news in news_result.get(
+                "items", []
+            ):  # Changed from news_result.get("news_items", [])
+                if any(
+                    keyword in news["title"].lower()
+                    for keyword in ["주식", "주가", "투자", "증시"]
+                ):
+                    stock_news.append(news)
 
-            return list(unique_news.values())
+            result = {
+                "stock_symbol": stock_symbol,
+                "total_news": len(stock_news),
+                "news_items": stock_news,
+                "query": query,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            # 캐시에 저장
+            self._cache[cache_key] = result
+            self._cache_timestamps[cache_key] = datetime.now()
+
+            return result
 
         except Exception as e:
-            logger.error(f"Stock news collection error: {e}")
-            raise NewsAnalysisError(
-                f"Stock news collection failed: {e}", "COLLECTION_ERROR"
-            ) from e
+            logger.error(f"주식 관련 뉴스 수집 실패: {e}")
+            raise NewsAnalysisError(f"주식 관련 뉴스 수집 실패: {e}")
 
     async def close(self):
         """클라이언트 리소스 정리"""

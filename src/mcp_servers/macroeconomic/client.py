@@ -74,21 +74,20 @@ class MacroeconomicClient(BaseMCPClient):
 
         logger.info(f"MacroeconomicClient initialized: {name}")
 
-    @MiddlewareManager.apply_all("재시도 로직")
-    async def _retry_with_backoff(self, func, *args, max_retries: int = 3, **kwargs):
+    async def _retry_with_backoff(self, func, *args, **kwargs):
         """지수 백오프를 사용한 재시도 로직"""
-        for attempt in range(max_retries):
+        for attempt in range(self.max_retries):
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
-                if attempt == max_retries - 1:
+                if attempt == self.max_retries - 1:
                     raise
 
-                wait_time = 2**attempt
-                logger.warning(
-                    f"Attempt {attempt + 1} failed, retrying in {wait_time}s: {e}"
+                delay = self.retry_delay * (2**attempt)
+                self.logger.warning(
+                    f"재시도 {attempt + 1}/{self.max_retries}, {delay}초 후 재시도: {e}"
                 )
-                await asyncio.sleep(wait_time)
+                await asyncio.sleep(delay)
 
     def _get_cache_key(self, func_name: str, **kwargs) -> str:
         """캐시 키 생성"""
@@ -104,15 +103,25 @@ class MacroeconomicClient(BaseMCPClient):
         return elapsed < self._cache_ttl
 
     async def collect_data(
-        self, category: str, max_records: int = 100, source: str = "default"
+        self, category: str, params: Dict[str, Any] = None, source: str = "default"
     ) -> Dict[str, Any]:
         """데이터 수집 - 실제 데이터 사용"""
         try:
+            # params가 None이면 기본값 설정
+            if params is None:
+                params = {}
+
+            max_records = params.get("max_records", 100)
+            start_date = params.get("start_date", None)
+            end_date = params.get("end_date", None)
+
             cache_key = self._get_cache_key(
                 "collect_data",
                 category=category,
                 max_records=max_records,
                 source=source,
+                start_date=start_date,
+                end_date=end_date,
             )
 
             # 캐시 확인

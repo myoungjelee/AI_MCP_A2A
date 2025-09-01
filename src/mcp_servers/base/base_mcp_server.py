@@ -4,7 +4,6 @@ FastCampus의 실제 구현체를 참조하여 현업 3-4년차 수준으로 개
 FastMCP의 핵심 기능은 유지하되 미들웨어 체인과 설정 관리를 강화했습니다.
 """
 
-import asyncio
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Union
@@ -123,17 +122,12 @@ class BaseMCPServer(ABC):
             )
 
     def _setup_middlewares(
-        self,
-        enable_middlewares: Optional[List[str]],
-        middleware_config: Optional[Dict[str, Any]],
+        self, enable_middlewares: bool, middleware_config: Dict[str, Any]
     ):
         """미들웨어를 설정합니다."""
-        if enable_middlewares:
-            for middleware_name in enable_middlewares:
-                if middleware_name in ["logging", "error_handling", "monitoring"]:
-                    self.middleware.enable_middleware(
-                        middleware_name, middleware_config.get(middleware_name, {})
-                    )
+        # 미들웨어는 기본적으로 활성화되어 있음 (MiddlewareManager 생성자에서)
+        # 추가 설정이 필요한 경우 여기서 처리
+        pass
 
     def _setup_logging(self):
         """로깅을 설정합니다."""
@@ -327,10 +321,8 @@ class BaseMCPServer(ABC):
 
             self._server_start_time = datetime.now()
 
-            # FastMCP 서버 시작
-            await self.mcp.start(host=self.host, port=self.port)
-
-            self.logger.info(f"서버 시작 완료: {self.host}:{self.port}")
+            # FastMCP 서버는 run 메서드로 실행되므로 여기서는 상태만 기록
+            self.logger.info(f"서버 시작 준비 완료: {self.host}:{self.port}")
 
         except Exception as e:
             self.logger.error(f"서버 시작 실패: {e}")
@@ -341,30 +333,35 @@ class BaseMCPServer(ABC):
         try:
             self.logger.info("서버 중지 중...")
 
-            # FastMCP 서버 중지
-            await self.mcp.stop()
-
+            # FastMCP 서버는 별도의 중지 메서드가 없으므로 로그만 기록
             self.logger.info("서버 중지 완료")
 
         except Exception as e:
             self.logger.error(f"서버 중지 실패: {e}")
             raise
 
+    def run_server(self):
+        """서버를 실행합니다 (HTTP 모드)."""
+        try:
+            self.logger.info(f"HTTP 서버 시작: {self.host}:{self.port}")
+            self.mcp.run_streamable_http_async(host=self.host, port=self.port)
+        except Exception as e:
+            self.logger.error(f"HTTP 서버 실행 실패: {e}")
+            raise
+
+    def run_stdio(self):
+        """서버를 stdio 모드로 실행합니다."""
+        try:
+            self.logger.info("stdio 모드로 서버 실행 중...")
+            self.mcp.run_stdio_async()
+        except Exception as e:
+            self.logger.error(f"stdio 모드 실행 실패: {e}")
+            raise
+
     def stdio_communication(self):
         """stdio 통신을 처리합니다."""
         self.logger.info("stdio 통신 모드로 실행 중...")
         # FastMCP에서 stdio 통신을 처리하므로 여기서는 기본 구현만
-
-    def run(self):
-        """서버를 실행합니다."""
-        try:
-            asyncio.run(self.start_server())
-        except KeyboardInterrupt:
-            self.logger.info("사용자에 의해 서버가 중단되었습니다.")
-        except Exception as e:
-            self.logger.error(f"서버 실행 중 오류 발생: {e}")
-        finally:
-            asyncio.run(self.stop_server())
 
     def increment_request_count(self):
         """요청 카운트를 증가시킵니다."""

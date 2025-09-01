@@ -54,7 +54,7 @@ class NaverNewsMCPServer(BaseMCPServer):
         }
 
         super().__init__(
-            server_name=server_name,
+            name=server_name,
             port=port,
             host=host,
             debug=debug,

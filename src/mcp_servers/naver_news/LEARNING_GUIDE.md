@@ -1,373 +1,228 @@
-# 콘텐츠 수집 시스템 MCP 서버 학습 가이드
+# Naver News 폴더 러닝 가이드
+
+## 🎯 **폴더 목적**
+
+네이버 뉴스 API를 활용한 뉴스 수집 및 분석 시스템으로, 실시간 뉴스 데이터를 처리합니다.
+
+## 📁 **파일 구조**
+
+```
+naver_news/
+├── __init__.py              # 패키지 초기화
+├── client.py                # 뉴스 수집 클라이언트
+└── server.py                # MCP 서버 구현
+```
+
+## 🔧 **핵심 개념**
+
+### **1. NewsClient (client.py)**
+
+- **역할**: 네이버 뉴스 API를 통한 뉴스 수집 및 분석
+- **주요 기능**:
+  - 뉴스 검색 (`search_news`)
+  - 주식 관련 뉴스 필터링 (`get_stock_related_news`)
+  - 뉴스 감정 분석 (`analyze_news_sentiment`)
+
+### **2. NaverNewsMCPServer (server.py)**
+
+- **역할**: MCP 프로토콜을 통한 뉴스 서비스 제공
+- **주요 기능**:
+  - 뉴스 검색 도구 등록
+  - 주식 관련 뉴스 도구 등록
+  - 감정 분석 도구 등록
+
+## 📊 **뉴스 처리 흐름**
+
+### **1. 뉴스 수집 단계**
+
+```
+검색어 입력 → 네이버 API 호출 → 응답 파싱 → 데이터 정제 → 결과 반환
+```
+
+### **2. 뉴스 필터링 단계**
+
+```
+뉴스 데이터 → 키워드 매칭 → 관련성 점수 → 우선순위 정렬 → 필터링된 결과
+```
+
+### **3. 감정 분석 단계**
+
+```
+뉴스 텍스트 → 키워드 추출 → 감정 점수 계산 → 긍정/부정/중립 분류
+```
+
+## 💡 **핵심 디자인 패턴**
+
+### **1. HTTP 클라이언트 패턴**
+
+```python
+# HTTP 세션 관리
+async def get(self, endpoint: str, params: Dict[str, Any] = None, headers: Dict[str, Any] = None):
+    """HTTP GET 요청 수행"""
+    async with self.session.get(endpoint, params=params, headers=headers) as response:
+        response.raise_for_status()
+        return await response.json()
+```
+
+### **2. 키워드 매칭 패턴**
+
+```python
+# 긍정/부정 키워드 분류
+positive_keywords = ["상승", "강세", "매수", "추천", "목표가상향"]
+negative_keywords = ["하락", "약세", "매도", "하향조정", "실적부진"]
+
+# 키워드 기반 감정 분석
+sentiment_score = self._calculate_sentiment_score(text, positive_keywords, negative_keywords)
+```
+
+### **3. 에러 처리 패턴**
+
+```python
+# 계층적 에러 처리
+try:
+    result = await self._fetch_news_from_api(query, params)
+    return self._process_news_data(result)
+except httpx.HTTPStatusError as e:
+    raise NewsAnalysisError(f"HTTP 에러: {e.response.status_code}")
+except httpx.RequestError as e:
+    raise NewsAnalysisError(f"요청 에러: {e}")
+except Exception as e:
+    raise NewsAnalysisError(f"예상치 못한 에러: {e}")
+```
+
+## 🚀 **실습 예제**
+
+### **뉴스 검색 테스트**
+
+```python
+from src.mcp_servers.naver_news.client import NewsClient
+
+async def test_news_search():
+    client = NewsClient()
+
+    # 뉴스 검색
+    result = await client.search_news('주식', display=5)
+    print(f"검색된 뉴스: {len(result)}개")
+
+    # 첫 번째 뉴스 정보
+    if result:
+        first_news = result[0]
+        print(f"제목: {first_news.get('title', 'N/A')}")
+        print(f"링크: {first_news.get('link', 'N/A')}")
+```
+
+### **주식 관련 뉴스 필터링 테스트**
+
+```python
+# 주식 관련 뉴스만 필터링
+stock_news = await client.get_stock_related_news('삼성전자', limit=10)
+print(f"주식 관련 뉴스: {len(stock_news)}개")
+
+# 각 뉴스의 관련성 점수
+for news in stock_news:
+    print(f"- {news['title']} (점수: {news.get('relevance_score', 'N/A')})")
+```
+
+### **감정 분석 테스트**
+
+```python
+# 뉴스 감정 분석
+sentiment_result = await client.analyze_news_sentiment('삼성전자 실적 발표')
+print(f"감정 분석 결과: {sentiment_result.get('sentiment', 'N/A')}")
+print(f"신뢰도: {sentiment_result.get('confidence', 'N/A')}")
+```
+
+## 🔍 **디버깅 팁**
+
+### **1. API 호출 문제**
+
+- **HTTP 상태 코드**: 200, 401, 403, 429 등 확인
+- **API 키 설정**: 네이버 개발자 센터에서 API 키 발급 확인
+- **요청 제한**: API 호출 횟수 제한 확인
+
+### **2. 데이터 파싱 문제**
+
+- **응답 구조**: 네이버 API 응답 형식 변경 시 파싱 로직 수정
+- **인코딩**: 한글 텍스트 인코딩 문제 확인
+- **빈 데이터**: API 응답이 비어있는 경우 처리
+
+### **3. 성능 문제**
+
+- **캐싱**: 동일한 검색어에 대한 중복 API 호출 방지
+- **배치 처리**: 여러 검색어를 한 번에 처리
+- **비동기 처리**: 여러 API 호출을 동시에 수행
+
+## 📈 **성능 최적화**
+
+### **1. API 호출 최적화**
+
+- **캐싱 전략**: 검색 결과를 메모리에 캐싱 (TTL: 5분)
+- **배치 요청**: 여러 검색어를 하나의 요청으로 처리
+- **연결 풀링**: HTTP 세션 재사용
+
+### **2. 데이터 처리 최적화**
+
+- **스트리밍 파싱**: 대용량 응답을 스트리밍으로 처리
+- **병렬 처리**: 여러 뉴스 항목을 동시에 분석
+- **메모리 관리**: 불필요한 데이터 즉시 해제
+
+### **3. 에러 처리 최적화**
+
+- **재시도 로직**: 일시적 오류 시 자동 재시도
+- **Circuit Breaker**: 연속 실패 시 일시적 중단
+- **Fallback**: API 실패 시 대체 데이터 제공
 
 ## 🎯 **학습 목표**
 
-이 가이드를 통해 **ContentCollectionClient**를 사용하여 콘텐츠를 수집하고, **개발 기술 중심의 포트폴리오**를 구축할 수 있습니다.
+1. **HTTP API 연동** 시스템 구축 및 최적화
+2. **뉴스 데이터 파싱** 및 정제 로직 구현
+3. **키워드 기반 필터링** 알고리즘 개발
+4. **감정 분석 시스템** 구현 및 정확도 향상
+5. **MCP 서버 통합** 및 도구 등록
 
-## 🏗️ **아키텍처 개요**
+## 🔮 **향후 개선 방향**
 
-### **핵심 컴포넌트**
+### **1. 고급 분석 기능**
 
-- **ContentCollectionClient**: 콘텐츠 수집 클라이언트
-- **ContentCollectionMCPServer**: MCP 서버 구현체
-- **ContentItem**: 콘텐츠 아이템 데이터 클래스
-- **ContentCollectionError**: 에러 처리 클래스
+- **자연어 처리**: BERT, GPT 등 활용한 고급 텍스트 분석
+- **주제 모델링**: LDA, BERTopic 등으로 뉴스 주제 분류
+- **실시간 모니터링**: WebSocket을 통한 실시간 뉴스 스트리밍
 
-### **기술 스택**
+### **2. 다중 소스 통합**
 
-- **FastMCP**: MCP 서버 프레임워크
-- **BaseMCPClient**: MCP 클라이언트 기본 클래스
-- **asyncio**: 비동기 처리
-- **dataclass**: 데이터 구조화
-
-## 🚀 **시작하기**
-
-### **1. 클라이언트 초기화**
-
-```python
-from src.mcp_servers.naver_news.client import ContentCollectionClient
-
-# 클라이언트 생성
-client = ContentCollectionClient("my_collector")
-```
-
-### **2. 사용 가능한 도구 확인**
-
-```python
-# 도구 목록 조회
-tools = await client.list_tools()
-print(f"사용 가능한 도구: {len(tools)}개")
-
-for tool in tools:
-    print(f"- {tool['name']}: {tool['description']}")
-```
-
-## 🔧 **주요 기능 사용법**
-
-### **1. 콘텐츠 수집**
-
-```python
-# 쿼리 기반 콘텐츠 수집
-result = await client.collect_content("AI 기술", max_items=20, category="technology")
-
-if result["success"]:
-    print(f"수집된 콘텐츠: {result['total_collected']}개")
-    print(f"카테고리: {result['category']}")
-    print(f"수집 시간: {result['collection_timestamp']}")
-
-    for item in result["items"]:
-        print(f"- {item['title']} (관련도: {item['relevance_score']:.2f})")
-else:
-    print(f"콘텐츠 수집 실패: {result['error']}")
-```
-
-### **2. 콘텐츠 파싱**
-
-```python
-# 수집된 콘텐츠 파싱 및 분석
-content_items = result["items"]
-parsing_result = await client.parse_content(content_items)
-
-if parsing_result["success"]:
-    print(f"파싱 완료: {parsing_result['total_parsed']}개")
-    print(f"고유 키워드: {parsing_result['unique_keywords']}개")
-
-    for item in parsing_result["parsed_items"]:
-        print(f"- {item['title']}")
-        print(f"  요약: {item['summary']}")
-        print(f"  키워드: {', '.join(item['keywords'])}")
-else:
-    print(f"파싱 실패: {parsing_result['error']}")
-```
-
-### **3. 콘텐츠 저장**
-
-```python
-# 파싱된 콘텐츠 저장
-storage_result = await client.store_content(parsing_result, storage_type="database")
-
-if storage_result["success"]:
-    storage_info = storage_result["storage_info"]
-    print(f"저장 완료: {storage_info['storage_id']}")
-    print(f"저장 타입: {storage_info['storage_type']}")
-    print(f"저장된 항목: {storage_info['total_items']}개")
-else:
-    print(f"저장 실패: {storage_result['error']}")
-```
-
-## 📊 **데이터 구조 이해**
-
-### **ContentItem 구조**
-
-```python
-@dataclass
-class ContentItem:
-    title: str              # 콘텐츠 제목
-    content: str            # 콘텐츠 내용
-    url: str                # 콘텐츠 URL
-    published_at: datetime  # 발행 시간
-    source: str             # 콘텐츠 소스
-    category: str           # 콘텐츠 카테고리
-    relevance_score: float  # 관련도 점수 (0.0 ~ 1.0)
-    keywords: List[str]     # 키워드 목록
-```
-
-### **응답 구조**
-
-```python
-# 콘텐츠 수집 성공 응답
-{
-    "success": True,
-    "query": "AI 기술",
-    "total_collected": 10,
-    "category": "technology",
-    "items": [
-        {
-            "title": "AI 기술 관련 콘텐츠 1",
-            "content": "이것은 AI 기술에 대한 실제 콘텐츠 내용입니다...",
-            "url": "https://example.com/content/AI_기술_1",
-            "published_at": "2024-01-01T10:00:00",
-            "source": "콘텐츠 수집 시스템",
-            "category": "technology",
-            "relevance_score": 0.9,
-            "keywords": ["AI 기술", "기술", "개발", "소프트웨어"]
-        }
-    ],
-    "collection_timestamp": "2024-01-01T10:00:00"
-}
-
-# 콘텐츠 파싱 성공 응답
-{
-    "success": True,
-    "total_parsed": 10,
-    "unique_keywords": 15,
-    "parsed_items": [
-        {
-            "id": "item_0",
-            "title": "AI 기술 관련 콘텐츠 1",
-            "summary": "이것은 AI 기술에 대한 실제 콘텐츠 내용입니다...",
-            "keywords": ["AI", "기술", "개발"],
-            "word_count": 25,
-            "parsed_at": "2024-01-01T10:00:00"
-        }
-    ],
-    "parsing_timestamp": "2024-01-01T10:00:00"
-}
-```
-
-## 🔄 **고급 기능**
-
-### **1. 캐싱 활용**
-
-```python
-# 캐시는 자동으로 관리됩니다
-# 첫 번째 호출: 실제 콘텐츠 수집
-result1 = await client.collect_content("AI 기술", max_items=20)
-
-# 두 번째 호출: 캐시에서 반환 (빠름)
-result2 = await client.collect_content("AI 기술", max_items=20)
-
-# 결과는 동일합니다
-assert result1 == result2
-```
-
-### **2. 재시도 로직**
-
-```python
-# 네트워크 오류 시 자동 재시도
-# 기본 설정: 최대 3회, 지수 백오프 (1초 → 2초 → 4초)
-try:
-    result = await client.collect_content("AI 기술", max_items=20)
-except Exception as e:
-    print(f"최대 재시도 후 실패: {e}")
-```
-
-### **3. 키워드 추출**
-
-```python
-# 내부적으로 키워드 추출 기능 제공
-# 3글자 이상의 단어를 키워드로 자동 추출
-# 중복 제거 및 최대 키워드 수 제한 (기본: 5개)
-```
-
-## 🧪 **테스트 작성**
-
-### **단위 테스트 예시**
-
-```python
-import pytest
-from src.mcp_servers.naver_news.client import ContentCollectionClient
-
-@pytest.mark.asyncio
-async def test_content_collection_success():
-    """[콘텐츠 수집] 유효한 쿼리로 콘텐츠 수집이 성공한다"""
-    # Given: 유효한 쿼리
-    client = ContentCollectionClient("test_collector")
-    query = "AI 기술"
-
-    # When: 콘텐츠 수집 실행
-    result = await client.collect_content(query, max_items=10)
-
-    # Then: 수집 성공
-    assert result["success"] is True
-    assert "items" in result
-    assert result["query"] == query
-    assert result["total_collected"] > 0
-
-@pytest.mark.asyncio
-async def test_content_parsing_success():
-    """[콘텐츠 파싱] 유효한 콘텐츠로 파싱이 성공한다"""
-    # Given: 수집된 콘텐츠와 클라이언트
-    client = ContentCollectionClient("test_collector")
-    content_items = [
-        {
-            "title": "테스트 제목",
-            "content": "테스트 콘텐츠 내용입니다.",
-            "url": "https://test.com",
-            "published_at": "2024-01-01T10:00:00",
-            "source": "테스트",
-            "category": "test",
-            "relevance_score": 0.9,
-            "keywords": ["테스트", "콘텐츠"]
-        }
-    ]
-
-    # When: 콘텐츠 파싱 실행
-    result = await client.parse_content(content_items)
-
-    # Then: 파싱 성공
-    assert result["success"] is True
-    assert result["total_parsed"] == 1
-    assert "parsed_items" in result
-```
-
-## 🚨 **에러 처리**
-
-### **일반적인 에러 상황**
-
-```python
-try:
-    result = await client.collect_content("", max_items=0)
-except ContentCollectionError as e:
-    print(f"콘텐츠 수집 에러: {e}")
-    print(f"에러 코드: {e.error_code}")
-    if e.details:
-        print(f"상세 정보: {e.details}")
-```
-
-### **에러 타입**
-
-- **ContentCollectionError**: 일반적인 콘텐츠 수집 에러
-- **ValueError**: 잘못된 파라미터
-- **NetworkError**: 네트워크 연결 에러
-
-## 📈 **성능 최적화 팁**
-
-### **1. 배치 처리**
-
-```python
-# 여러 쿼리를 동시에 처리
-queries = ["AI 기술", "머신러닝", "딥러닝"]
-tasks = [client.collect_content(query, max_items=20) for query in queries]
-results = await asyncio.gather(*tasks)
-
-for query, result in zip(queries, results):
-    if result["success"]:
-        print(f"{query}: {result['total_collected']}개 수집")
-```
-
-### **2. 캐시 TTL 조정**
-
-```python
-# 캐시 유효 시간 조정 (기본: 5분)
-client._cache_ttl = 600  # 10분으로 증가
-```
-
-### **3. 키워드 최적화**
-
-```python
-# 기본 키워드 설정으로 관련성 향상
-client.default_keywords = ["AI", "머신러닝", "데이터", "개발", "기술"]
-```
-
-## 🔍 **디버깅 및 로깅**
-
-### **로깅 설정**
-
-```python
-import logging
-
-# 상세한 로깅 활성화
-logging.basicConfig(level=logging.DEBUG)
-
-# 클라이언트별 로깅
-logger = logging.getLogger("content_collector.my_collector")
-logger.setLevel(logging.DEBUG)
-```
-
-### **디버깅 정보**
-
-```python
-# 캐시 상태 확인
-print(f"캐시된 항목: {len(client._cache)}")
-print(f"캐시 키들: {list(client._cache.keys())}")
-
-# 기본 설정 확인
-print(f"최대 아이템 수: {client.max_items_per_request}")
-print(f"기본 타임아웃: {client.default_timeout}초")
-print(f"기본 키워드: {client.default_keywords}")
-```
-
-## 🚀 **FastMCP 서버 구현**
-
-### **서버 초기화**
-
-```python
-class ContentCollectionMCPServer:
-    def __init__(self, port: int = 8050, host: str = "0.0.0.0"):
-        self.port = port
-        self.host = host
-        self.mcp = FastMCP("content_collector")
-        self.mcp.description = "콘텐츠 수집 시스템 - 개발 기술 중심의 MCP 서버"
-```
-
-### **도구 등록**
-
-```python
-@self.mcp.tool()
-async def collect_content(query: str, max_items: int = 20, category: str = "general") -> dict[str, Any]:
-    """콘텐츠 수집"""
-    try:
-        result = await self.client.collect_content(query=query, max_items=max_items, category=category)
-        return result
-    except Exception as e:
-        return {"success": False, "error": str(e), "query": query}
-```
-
-## 📚 **추가 학습 자료**
-
-### **관련 기술**
-
-- **Model Context Protocol (MCP)**: AI 모델과 도구 간 통신 표준
-- **FastMCP**: Python MCP 서버 구현 프레임워크
-- **BaseMCPClient**: MCP 클라이언트 기본 클래스
-- **비동기 프로그래밍**: asyncio, async/await 패턴
-
-### **다음 단계**
-
-- **LangGraph 에이전트**: 복잡한 워크플로우 구현
-- **A2A 통신**: 에이전트 간 협업 시스템
-- **Docker 컨테이너화**: 서비스 배포 및 확장
-
-## 🎉 **성취 체크리스트**
-
-- [ ] **ContentCollectionClient** 초기화 및 기본 사용법 숙지
-- [ ] **콘텐츠 수집** 기능 활용
-- [ ] **콘텐츠 파싱** 기능 활용
-- [ ] **콘텐츠 저장** 기능 활용
-- [ ] **캐싱 및 재시도** 로직 이해
-- [ ] **에러 처리** 및 로깅 구현
-- [ ] **단위 테스트** 작성 및 실행
-- [ ] **성능 최적화** 기법 적용
-
-이제 **콘텐츠 수집 시스템 MCP 서버**를 마스터하여 **개발 기술 중심의 포트폴리오**를 완성할 수 있습니다! 🚀
+- **다른 뉴스 API**: 뉴스1, 연합뉴스 등 추가
+- **소셜 미디어**: 트위터, 페이스북 등 소셜 데이터 통합
+- **RSS 피드**: 다양한 뉴스 사이트 RSS 피드 수집
+
+### **3. 시각화 및 리포트**
+
+- **뉴스 대시보드**: 실시간 뉴스 모니터링 인터페이스
+- **트렌드 차트**: 시간별 뉴스 양 및 감정 변화
+- **자동 리포트**: 일일/주간 뉴스 요약 리포트 생성
+
+## 📚 **참고 자료**
+
+- `docs/kiwoom_rest_api_180_docs.md` - API 연동 관련 문서
+- `docs/langchain-llms.txt` - LangChain 통합
+- 네이버 개발자 센터 API 문서
+- HTTP/2 및 비동기 HTTP 클라이언트 관련 자료
+
+## 🚀 **실제 활용 시나리오**
+
+### **1. 투자자**
+
+- **시장 동향 파악**: 실시간 뉴스로 시장 심리 분석
+- **기업 모니터링**: 특정 기업 관련 뉴스 추적
+- **매매 타이밍**: 뉴스 기반 매매 시점 결정
+
+### **2. 기업**
+
+- **브랜드 모니터링**: 기업 관련 뉴스 및 여론 추적
+- **위기 관리**: 부정적 뉴스 조기 감지 및 대응
+- **시장 분석**: 경쟁사 및 산업 동향 파악
+
+### **3. 연구자**
+
+- **뉴스 데이터 분석**: 대량 뉴스 데이터로 연구 수행
+- **감정 분석 연구**: 텍스트 마이닝 및 NLP 연구
+- **시계열 분석**: 뉴스와 주가 상관관계 연구

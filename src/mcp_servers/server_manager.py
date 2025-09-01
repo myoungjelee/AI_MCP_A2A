@@ -21,7 +21,7 @@ from src.mcp_servers import (
     FinancialAnalysisMCPServer,
     KiwoomMCPServer,
     MacroeconomicMCPServer,
-    NaverNewsMCPServer,
+    NaverNewsMCPServer, 
     StockAnalysisMCPServer,
     TavilySearchMCPServer,
 )

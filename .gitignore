@@ -25,14 +25,10 @@ data/
 node_modules/
 
 # AI Tools
-.serena/
 .cursor/
-.claude/
 .mcp.json
-CLAUDE.md
-CLAUDE-*.md
-shrimp_data/
-GEMINI.md
-GEMINI-*.md
-QWEN.md
-QWEN-*.md
+
+# Documentation and Learning Guides
+docs/
+**/LEARNING_GUIDE.md
+LEARNING_GUIDE.md

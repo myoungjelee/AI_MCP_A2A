@@ -1,411 +1,223 @@
-# 🎯 `stock_analysis` MCP 서버 학습 가이드
+# Stock Analysis 폴더 러닝 가이드
 
-**복잡한 주식 분석 대신 깔끔한 코드 구조와 효율적인 데이터 분석 알고리즘을 보여주는 MCP 서버**
+## 🎯 **폴더 목적**
 
----
+주식 데이터 분석 시스템으로, 기술적 지표 계산, 트렌드 분석, 패턴 인식을 담당합니다.
 
-## 📋 **1. 전체 구조 이해**
-
-### **파일 구성**
+## 📁 **파일 구조**
 
 ```
 stock_analysis/
-├── __init__.py      # 모듈 초기화 및 export
-├── client.py        # 데이터 분석 클라이언트 (핵심 로직)
-├── server.py        # FastMCP 서버 (도구 등록)
-└── LEARNING_GUIDE.md # 이 학습 가이드
+├── __init__.py              # 패키지 초기화
+├── client.py                # 주식 분석 클라이언트
+└── server.py                # MCP 서버 구현
 ```
 
-### **아키텍처 패턴**
+## 🔧 **핵심 개념**
+
+### **1. StockAnalysisClient (client.py)**
+
+- **역할**: 주식 데이터 분석 및 기술적 지표 계산
+- **주요 기능**:
+  - 데이터 트렌드 분석 (`analyze_data_trends`)
+  - 통계적 지표 계산 (`calculate_statistical_indicators`)
+  - 패턴 인식 (`perform_pattern_recognition`)
+
+### **2. StockAnalysisMCPServer (server.py)**
+
+- **역할**: MCP 프로토콜을 통한 주식 분석 서비스 제공
+- **주요 기능**:
+  - 트렌드 분석 도구 등록
+  - 통계 지표 계산 도구 등록
+  - 패턴 인식 도구 등록
+
+## 📊 **분석 기능 구조**
+
+### **1. 데이터 트렌드 분석**
 
 ```
-사용자 요청 → FastMCP 서버 → 데이터 분석 클라이언트 → 분석 결과 반환
+시계열 데이터 → 이동평균 계산 → 트렌드 방향 판단 → 신뢰도 평가
 ```
 
----
+### **2. 통계적 지표 계산**
 
-## 🏗️ **2. 핵심 클래스 분석**
+```
+가격 데이터 → 기술적 지표 → 정규화 → 신호 생성
+```
 
-### **`DataAnalysisClient` - 분석 엔진**
+### **3. 패턴 인식**
+
+```
+가격 패턴 → 패턴 매칭 → 신뢰도 점수 → 매매 신호
+```
+
+## 💡 **핵심 디자인 패턴**
+
+### **1. 전략 패턴 (Strategy Pattern)**
 
 ```python
-class DataAnalysisClient(BaseMCPClient):
-    """데이터 분석 시스템 MCP 클라이언트 (개발 기술 중심)"""
+# 분석 전략을 런타임에 선택
+if analysis_type == "trend":
+    result = await self._analyze_trend_strategy(data)
+elif analysis_type == "pattern":
+    result = await self._analyze_pattern_strategy(data)
 ```
 
-**주요 특징**:
-
-- **BaseMCPClient 상속**: MCP 표준 준수
-- **비동기 처리**: `async/await` 패턴
-- **캐싱 시스템**: 메모리 캐시 + TTL (5분)
-- **재시도 로직**: 지수 백오프 (최대 3회)
-- **실제 데이터 연동**: FinanceDataReader 사용
-
----
-
-## ⚡ **3. 핵심 기술 구현**
-
-### **3-1. 캐싱 시스템**
+### **2. 템플릿 메서드 패턴**
 
 ```python
-def _get_cache_key(self, operation: str, params: Dict[str, Any]) -> str:
-    """캐시 키 생성"""
-    import hashlib
+# 공통 분석 흐름 정의
+async def analyze_data(self, data, strategy):
+    # 1. 데이터 검증
+    validated_data = self._validate_data(data)
 
-    key_data = f"{operation}:{str(sorted(params.items()))}"
-    return hashlib.md5(key_data.encode()).hexdigest()
+    # 2. 전략별 분석 실행
+    result = await strategy(validated_data)
 
-def _is_cache_valid(self, cache_key: str) -> bool:
-    """캐시 유효성 검사"""
-    if cache_key not in self._cache_timestamps:
-        return False
-
-    age = datetime.now() - self._cache_timestamps[cache_key]
-    return age.total_seconds() < self.cache_ttl
+    # 3. 결과 후처리
+    return self._post_process_result(result)
 ```
 
-**학습 포인트**:
-
-- **해시 기반 키 생성**: 파라미터 순서 무관하게 동일한 키 생성
-- **TTL 기반 만료**: 5분(300초) 기반 캐시 무효화
-- **메모리 효율성**: 간단한 딕셔너리 구조
-
----
-
-### **3-2. 재시도 로직**
+### **3. 팩토리 패턴**
 
 ```python
-async def _retry_with_backoff(self, func, *args, **kwargs):
-    """지수 백오프를 사용한 재시도 로직"""
-    for attempt in range(self.max_retries):
-        try:
-            return await func(*args, **kwargs)
-        except Exception as e:
-            if attempt == self.max_retries - 1:
-                raise
-
-            delay = self.retry_delay * (2**attempt)
-            self.logger.warning(
-                f"재시도 {attempt + 1}/{self.max_retries}, {delay}초 후 재시도: {e}"
-            )
-            await asyncio.sleep(delay)
+# 분석기 팩토리
+class AnalysisFactory:
+    @staticmethod
+    def create_analyzer(analysis_type: str):
+        if analysis_type == "trend":
+            return TrendAnalyzer()
+        elif analysis_type == "pattern":
+            return PatternAnalyzer()
 ```
 
-**학습 포인트**:
+## 🚀 **실습 예제**
 
-- **지수 백오프**: 1초 → 2초 → 4초로 증가
-- **최대 재시도 제한**: 3회로 무한 루프 방지
-- **비동기 대기**: `asyncio.sleep()` 사용
-
----
-
-### **3-3. 데이터 분석 알고리즘**
+### **트렌드 분석 테스트**
 
 ```python
-def _calculate_rsi(self, prices: np.ndarray, period: int = 14) -> float:
-    """RSI 계산"""
-    if len(prices) < period + 1:
-        return 50.0
+from src.mcp_servers.stock_analysis.client import StockAnalysisClient
 
-    deltas = np.diff(prices)
-    gains = np.where(deltas > 0, deltas, 0)
-    losses = np.where(deltas < 0, -deltas, 0)
+async def test_trend_analysis():
+    client = StockAnalysisClient()
 
-    avg_gain = np.mean(gains[:period])
-    avg_loss = np.mean(losses[:period])
-
-    if avg_loss == 0:
-        return 100.0
-
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-
-    return float(rsi)
+    # 트렌드 분석
+    result = await client.analyze_data_trends('AAPL', '1y')
+    print(f"트렌드 방향: {result.get('trend', 'N/A')}")
+    print(f"신뢰도: {result.get('confidence', 'N/A')}")
 ```
 
-**학습 포인트**:
-
-- **NumPy 활용**: 효율적인 배열 연산
-- **수학적 알고리즘**: RSI 공식 구현
-- **에러 처리**: 데이터 부족 시 기본값 반환
-
----
-
-### **3-4. 데이터 구조**
+### **통계 지표 계산 테스트**
 
 ```python
-@dataclass
-class AnalysisResult:
-    """분석 결과 구조"""
-    symbol: str
-    signal: str
-    score: float
-    confidence: float
-    indicators: Dict[str, Any]
-    timestamp: datetime
+# 통계적 지표 계산
+result = await client.calculate_statistical_indicators('AAPL')
+print(f"계산된 지표: {len(result.get('indicators', []))}개")
+
+# 각 지표별 상세 정보
+for indicator in result.get('indicators', []):
+    print(f"- {indicator['name']}: {indicator['value']}")
 ```
 
-**학습 포인트**:
-
-- **@dataclass**: 자동으로 `__init__`, `__repr__` 생성
-- **타입 힌트**: 명시적 타입 선언으로 가독성 향상
-- **불변성**: 데이터 변경 방지
-
----
-
-## 🔍 **4. 실제 분석 기능**
-
-### **4-1. 데이터 트렌드 분석**
+### **패턴 인식 테스트**
 
 ```python
-async def analyze_data_trends(self, symbol: str, period: str = "1y") -> Dict[str, Any]:
-    """데이터 트렌드 분석 수행 (캐싱 + 재시도 로직)"""
-    # 캐시 확인 → 실제 분석 → 결과 반환
-    return {
-        "success": True,
-        "data": {
-            "symbol": symbol,
-            "period": period,
-            "current_price": float(current_price),
-            "ma20": float(ma20),
-            "ma60": float(ma60),
-            "rsi": float(rsi),
-            "signal": signal,  # "상승", "하락", "중립"
-            "score": score,    # 0.0 ~ 1.0
-            "confidence": 0.7,
-            "data_points": len(close_prices)
-        },
-        "source": "fresh",  # 또는 "cache"
-        "message": f"'{symbol}' 트렌드 분석 완료"
-    }
+# 패턴 인식
+result = await client.perform_pattern_recognition('AAPL')
+print(f"인식된 패턴: {result.get('patterns', [])}")
 ```
 
-### **4-2. 통계적 지표 계산**
+## 🔍 **디버깅 팁**
 
-```python
-async def calculate_statistical_indicators(self, symbol: str) -> Dict[str, Any]:
-    """통계적 지표 계산 수행 (캐싱 + 재시도 로직)"""
-    return {
-        "success": True,
-        "data": {
-            "symbol": symbol,
-            "price_statistics": {
-                "mean": float(price_mean),
-                "std": float(price_std),
-                "min": float(price_min),
-                "max": float(price_max),
-                "volatility": float(volatility)  # 연간 변동성
-            },
-            "volume_statistics": volume_stats,
-            "data_points": len(close_prices),
-            "analysis_period": "90일"
-        },
-        "source": "fresh",
-        "message": f"'{symbol}' 통계 지표 계산 완료"
-    }
-```
+### **1. 데이터 검증 문제**
 
-### **4-3. 패턴 인식**
+- 입력 데이터 형식 확인
+- 필수 필드 존재 여부 검사
+- 데이터 타입 변환 오류 체크
 
-```python
-async def perform_pattern_recognition(self, symbol: str) -> Dict[str, Any]:
-    """패턴 인식 수행 (캐싱 + 재시도 로직)"""
-    return {
-        "success": True,
-        "data": {
-            "symbol": symbol,
-            "patterns": patterns,  # 패턴 리스트
-            "total_patterns": len(patterns),
-            "analysis_period": "120일",
-            "data_points": len(close_prices)
-        },
-        "source": "fresh",
-        "message": f"'{symbol}' 패턴 인식 완료"
-    }
-```
+### **2. 분석 알고리즘 문제**
 
----
+- 수치 계산 정확성 검증
+- 경계값 처리 확인
+- 에러 케이스 핸들링 점검
 
-## 🚀 **5. FastMCP 서버 구현**
+### **3. 성능 문제**
 
-### **5-1. 서버 초기화**
+- 대용량 데이터 처리 최적화
+- 메모리 사용량 모니터링
+- 분석 시간 측정 및 최적화
 
-```python
-class DataAnalysisMCPServer:
-    def __init__(self, port: int = 3021, host: str = "0.0.0.0"):
-        self.port = port
-        self.host = host
-        self.mcp = FastMCP("data_analysis_system")
-        self.mcp.description = (
-            "데이터 트렌드 분석, 통계적 지표 계산, 패턴 인식을 위한 MCP 서버 (개발 기술 중심)"
-        )
-```
+## 📈 **성능 최적화**
 
-**학습 포인트**:
+### **1. 알고리즘 최적화**
 
-- **FastMCP 인스턴스**: MCP 서버의 핵심
-- **설정 주입**: 포트, 호스트를 파라미터로 받음
-- **명확한 설명**: 서버의 역할을 명시
+- **시간 복잡도**: O(n²) → O(n log n) 개선
+- **공간 복잡도**: 메모리 사용량 최적화
+- **병렬 처리**: asyncio 활용한 동시 분석
 
----
+### **2. 캐싱 전략**
 
-### **5-2. 도구 등록**
+- **계산 결과 캐싱**: 동일한 분석 요청 시 재계산 방지
+- **중간 결과 캐싱**: 부분 계산 결과 저장
+- **TTL 관리**: 캐시 데이터 신선도 유지
 
-```python
-def _register_tools(self):
-    """MCP 도구들을 등록합니다."""
+### **3. 배치 처리**
 
-    @self.mcp.tool()
-    async def analyze_data_trends(symbol: str, period: str = "1y") -> Dict[str, Any]:
-        """데이터 트렌드 분석 수행 (캐싱 + 재시도 로직)"""
-        try:
-            result = await self.analysis_client.analyze_data_trends(symbol, period)
-            return result
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "데이터 트렌드 분석에 실패했습니다"
-            }
-```
+- **데이터 배치**: 여러 종목 동시 분석
+- **지표 배치**: 여러 지표 동시 계산
+- **결과 집계**: 배치 결과 통합 처리
 
-**학습 포인트**:
+## 🎯 **학습 목표**
 
-- **@self.mcp.tool()**: FastMCP 도구 등록 데코레이터
-- **비동기 함수**: `async def`로 비동기 처리
-- **에러 처리**: try-catch로 안전한 응답 반환
+1. **기술적 분석 알고리즘** 구현 및 최적화
+2. **통계적 지표 계산** 시스템 구축
+3. **패턴 인식 알고리즘** 개발
+4. **성능 최적화** 및 메모리 관리
+5. **MCP 서버 통합** 및 도구 등록
 
----
+## 🔮 **향후 개선 방향**
 
-## 📚 **6. 학습 순서 가이드**
+### **1. 실제 데이터 연동**
 
-### **1단계: 기본 구조 이해**
+- **FinanceDataReader**: 실제 주가 데이터 수집
+- **yfinance**: Yahoo Finance API 연동
+- **실시간 데이터**: WebSocket을 통한 실시간 가격
 
-1. `__init__.py` - 모듈 구조 파악
-2. `server.py` - FastMCP 서버 구조
-3. `client.py` - 클라이언트 클래스 구조
+### **2. 고급 분석 알고리즘**
 
-### **2단계: 핵심 기술 학습**
+- **머신러닝**: LSTM, Random Forest 등
+- **딥러닝**: 신경망 기반 패턴 인식
+- **통계적 모델**: ARIMA, GARCH 등
 
-1. **캐싱 시스템**: `_get_cache_key`, `_is_cache_valid`
-2. **재시도 로직**: `_retry_with_backoff`
-3. **데이터 분석**: RSI, 이동평균, 패턴 인식
-4. **데이터 구조**: `AnalysisResult`, `DataAnalysisError`
+### **3. 시각화 및 리포트**
 
-### **3단계: 실제 구현 패턴**
+- **차트 생성**: matplotlib, plotly 활용
+- **분석 리포트**: PDF/HTML 형태로 출력
+- **대시보드**: 실시간 모니터링 인터페이스
 
-1. **비동기 처리**: `async/await` 패턴
-2. **에러 처리**: 커스텀 예외와 로깅
-3. **FastMCP 통합**: 도구 등록과 서버 실행
-4. **실제 데이터 연동**: FinanceDataReader 활용
+## 📚 **참고 자료**
 
----
+- `docs/langgraph-llms_0.6.2.txt` - LangGraph 에이전트 구현
+- `docs/langchain-llms.txt` - LangChain 통합
+- 기술적 분석 관련 수학적 개념
+- 통계학 및 시계열 분석 이론
 
-## 🔧 **7. 실습 예제**
+## 🚀 **실제 활용 시나리오**
 
-### **7-1. 새로운 분석 지표 추가**
+### **1. 개인 투자자**
 
-```python
-async def calculate_momentum_indicators(self, symbol: str) -> Dict[str, Any]:
-    """모멘텀 지표 계산 추가 예제"""
-    # 1. 캐시 키 생성
-    cache_key = self._get_cache_key("calculate_momentum", {"symbol": symbol})
+- 주식 선택을 위한 기술적 분석
+- 매매 타이밍 결정
+- 포트폴리오 리밸런싱
 
-    # 2. 캐시 확인
-    if self._is_cache_valid(cache_key):
-        return {"success": True, "data": self._cache[cache_key], "source": "cache"}
+### **2. 기관 투자자**
 
-    # 3. 실제 모멘텀 계산 로직 구현
-    # 4. 캐시 업데이트
-    # 5. 결과 반환
-```
+- 대량 주식 분석
+- 리스크 관리
+- 자동화된 매매 시스템
 
-### **7-2. 서버에 도구 추가**
+### **3. 연구자**
 
-```python
-@self.mcp.tool()
-async def calculate_momentum_indicators(symbol: str) -> Dict[str, Any]:
-    """모멘텀 지표 계산 수행"""
-    try:
-        result = await self.analysis_client.calculate_momentum_indicators(symbol)
-        return result
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-```
-
----
-
-## 🎯 **8. 핵심 학습 포인트**
-
-### **개발 기술 어필**
-
-1. **캐싱**: 성능 최적화 (5분 TTL)
-2. **재시도**: 안정성 향상 (3회 최대)
-3. **비동기**: 동시성 처리
-4. **에러 처리**: 견고한 시스템
-5. **알고리즘 구현**: RSI, 이동평균 등
-
-### **코드 품질**
-
-1. **타입 힌트**: 명시적 타입 선언
-2. **한글 주석**: 이해하기 쉬운 설명
-3. **단일 책임**: 함수별 명확한 역할
-4. **일관성**: 통일된 코딩 스타일
-5. **실제 데이터**: FinanceDataReader 연동
-
----
-
-## 🚀 **9. 다음 단계 학습**
-
-**이 코드를 완벽히 이해한 후**:
-
-1. **다른 MCP 서버 분석**: `naver_news`, `kiwoom` 등
-2. **A2A 에이전트 구현**: 에이전트 간 통신
-3. **LangGraph 워크플로우**: 복잡한 작업 흐름
-4. **Docker 컨테이너화**: 배포 및 운영
-
----
-
-## 💡 **10. 디버깅 팁**
-
-### **캐시 디버깅**
-
-```python
-# 캐시 상태 확인
-print(f"캐시 키: {cache_key}")
-print(f"캐시 존재: {cache_key in self._cache}")
-print(f"캐시 유효: {self._is_cache_valid(cache_key)}")
-```
-
-### **재시도 로직 디버깅**
-
-```python
-# 재시도 횟수 확인
-print(f"현재 재시도: {attempt + 1}/{self.max_retries}")
-print(f"대기 시간: {delay}초")
-```
-
-### **데이터 분석 디버깅**
-
-```python
-# 데이터 상태 확인
-print(f"데이터 포인트 수: {len(close_prices)}")
-print(f"RSI 값: {rsi}")
-print(f"이동평균: MA20={ma20}, MA60={ma60}")
-```
-
----
-
-## 📖 **11. 참고 자료**
-
-- **FastMCP 문서**: [FastMCP 공식 문서](https://github.com/fastmcp/fastmcp)
-- **Python asyncio**: [Python 공식 문서](https://docs.python.org/3/library/asyncio.html)
-- **NumPy**: [NumPy 공식 문서](https://numpy.org/doc/)
-- **FinanceDataReader**: [FinanceDataReader 문서](https://github.com/financedata-org/FinanceDataReader)
-- **MCP 프로토콜**: [MCP 공식 문서](https://modelcontextprotocol.io/)
-
----
-
-**이제 이 학습 가이드를 참고해서 코드를 차근차근 학습해보세요!** 🎯✨
-
-**궁금한 점이나 추가 설명이 필요한 부분이 있으면 언제든 말씀해주세요!** 📚💬
+- 시장 효율성 연구
+- 새로운 지표 개발
+- 백테스팅 및 검증
