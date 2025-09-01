@@ -26,7 +26,7 @@ class NaverNewsMCPServer(BaseMCPServer):
     def __init__(
         self,
         server_name: str = "Naver News MCP Server",
-        port: int = 8050,
+        port: int = 8051,
         host: str = "0.0.0.0",
         debug: bool = False,
         **kwargs,
@@ -182,10 +182,8 @@ class NaverNewsMCPServer(BaseMCPServer):
                     )
 
                 result = await self.news_client.get_stock_related_news(
-                    symbol=symbol,
-                    company_name=company_name,
-                    days_back=days_back,
-                    max_articles=max_articles,
+                    stock_symbol=symbol,
+                    max_results=max_articles,
                 )
 
                 return self.create_standard_response(
@@ -201,71 +199,35 @@ class NaverNewsMCPServer(BaseMCPServer):
                 )
 
             except Exception as e:
-                return await self.create_error_response(
+                return self.create_error_response(
                     func_name="get_stock_news",
                     error=e,
                     symbol=symbol,
                 )
 
 
-if __name__ == "__main__":
+def main():
+    """메인 함수"""
+    import asyncio
+
+    # 서버 인스턴스 생성
+    server = NaverNewsMCPServer(port=8051, debug=True)
+
     try:
-        # 서버 생성
-        server = NaverNewsMCPServer()
+        # 서버 시작 준비
+        asyncio.run(server.start_server())
 
-        # Health 엔드포인트 등록
-        @server.mcp.custom_route(
-            path="/health",
-            methods=["GET", "OPTIONS"],
-            include_in_schema=True,
-        )
-        async def health_check(request):
-            """Health check endpoint with CORS support"""
-            from starlette.responses import JSONResponse
+        # FastMCP 서버 실행 (HTTP 모드)
+        server.run_server()
 
-            # Manual CORS headers for health endpoint
-            headers = {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
-                "Access-Control-Expose-Headers": "*",
-            }
-
-            response_data = server.create_standard_response(
-                success=True,
-                query="MCP Server Health check",
-                data="OK",
-            )
-            return JSONResponse(content=response_data, headers=headers)
-
-        # Add global CORS handler for all custom routes
-        @server.mcp.custom_route(
-            path="/{path:path}",
-            methods=["OPTIONS"],
-            include_in_schema=False,
-        )
-        async def handle_options(request):
-            """Handle OPTIONS requests for CORS"""
-            from starlette.responses import Response
-
-            return Response(
-                content="",
-                status_code=200,
-                headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "*",
-                    "Access-Control-Allow-Headers": "*",
-                    "Access-Control-Max-Age": "3600",
-                },
-            )
-
-        # FastMCP 기본 실행 방식 사용
-        logger.info(f"Starting Naver News MCP Server on {server.host}:{server.port}")
-        server.mcp.run(transport="streamable-http", host=server.host, port=server.port)
     except KeyboardInterrupt:
-        logger.info("Received interrupt signal")
+        logger.info("서버가 사용자에 의해 중단되었습니다.")
     except Exception as e:
-        logger.error(f"Server error: {e}")
-        raise
+        logger.error(f"서버 실행 중 오류 발생: {e}")
     finally:
-        logger.info("Naver News MCP Server stopped")
+        # 서버 정리
+        asyncio.run(server.stop_server())
+
+
+if __name__ == "__main__":
+    main()

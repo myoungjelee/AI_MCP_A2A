@@ -6,10 +6,9 @@
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from src.mcp_servers.base.base_mcp_server import BaseMCPServer
-from src.mcp_servers.base.config import MCPServerConfig
 
 from .client import MacroeconomicClient
 
@@ -19,47 +18,8 @@ logger = logging.getLogger(__name__)
 class MacroeconomicMCPServer(BaseMCPServer):
     """거시경제 데이터 처리 시스템 MCP 서버"""
 
-    def __init__(
-        self,
-        port: int = 8041,
-        host: str = "0.0.0.0",
-        debug: bool = False,
-        config: Optional[MCPServerConfig] = None,
-        **kwargs,
-    ):
-        """서버 초기화"""
-
-        # 설정 초기화
-        if config is None:
-            config = MCPServerConfig.from_env("MACROECONOMIC")
-
-        # 미들웨어 설정
-        enable_middlewares = ["logging", "error_handling", "monitoring"]
-        middleware_config = {
-            "logging": {
-                "log_requests": True,
-                "log_responses": debug,
-                "log_performance": True,
-            },
-            "error_handling": {"include_traceback": debug, "log_error_details": True},
-            "monitoring": {
-                "track_operations": True,
-                "track_errors": True,
-                "enable_metrics": True,
-            },
-        }
-
-        super().__init__(
-            name="macroeconomic",
-            port=port,
-            host=host,
-            debug=debug,
-            server_instructions="거시경제 데이터 처리 시스템 - 개발 기술 중심의 MCP 서버",
-            config=config,
-            enable_middlewares=enable_middlewares,
-            middleware_config=middleware_config,
-            **kwargs,
-        )
+    def __init__(self, port: int = 8042, debug: bool = False):
+        super().__init__("macroeconomic", port=port, debug=debug)
 
     def _initialize_clients(self):
         """클라이언트들을 초기화합니다."""
@@ -241,8 +201,12 @@ def main():
     server = MacroeconomicMCPServer(debug=True)
 
     try:
-        # 서버 실행
+        # 서버 시작 준비
         asyncio.run(server.start_server())
+
+        # FastMCP 서버 실행 (HTTP 모드)
+        server.run_server()
+
     except KeyboardInterrupt:
         logger.info("서버가 사용자에 의해 중단되었습니다.")
     except Exception as e:

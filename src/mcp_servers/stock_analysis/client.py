@@ -171,6 +171,14 @@ class StockAnalysisClient(BaseMCPClient):
                     "score": score,
                     "confidence": 0.7,
                     "data_points": len(close_prices),
+                    "trend_analysis": {
+                        "signal": signal,
+                        "confidence": 0.7,
+                        "reasoning": [
+                            f"이동평균 분석: MA20({ma20:.2f}) vs MA60({ma60:.2f})"
+                        ],
+                        "timestamp": datetime.now().isoformat(),
+                    },
                 }
 
             data = await self._retry_with_backoff(_fetch_trend_analysis)

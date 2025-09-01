@@ -1,0 +1,9 @@
+{
+  "request": {
+    "symbol": "005930",
+    "analysis_type": "comprehensive",
+    "timeframe": "1d",
+    "limit": 100
+  },
+  "task_type": "comprehensive_analysis"
+}

@@ -7,10 +7,13 @@
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
+
+import requests
 
 from ..base.base_mcp_client import BaseMCPClient
 from ..base.middleware import MiddlewareManager
@@ -60,19 +63,33 @@ class MacroeconomicClient(BaseMCPClient):
         self.default_timeout = 30.0
         self.max_retries = 3
 
-        # 기본 데이터 카테고리 (도메인 단순화)
+        # API 키 설정
+        self.ecos_api_key = os.getenv("ECOS_API_KEY")
+        self.fred_api_key = os.getenv("FRED_API_KEY")
+
+        # API 엔드포인트
+        self.ecos_base_url = "https://ecos.bok.or.kr/api"
+        self.fred_base_url = "https://api.stlouisfed.org/fred/series/observations"
+
+        # 기본 데이터 카테고리 (실제 경제 지표)
         self.default_categories = [
-            "performance",
-            "quality",
-            "efficiency",
-            "reliability",
-            "scalability",
-            "maintainability",
-            "security",
-            "compatibility",
+            "GDP",  # 국내총생산
+            "CPI",  # 소비자물가지수
+            "INTEREST_RATE",  # 금리
+            "EXCHANGE_RATE",  # 환율
+            "UNEMPLOYMENT",  # 실업률
+            "INFLATION",  # 인플레이션
+            "TRADE_BALANCE",  # 무역수지
+            "FOREIGN_RESERVE",  # 외환보유액
         ]
 
         logger.info(f"MacroeconomicClient initialized: {name}")
+        logger.info(
+            f"ECOS API Key: {'설정됨' if self.ecos_api_key else '설정되지 않음'}"
+        )
+        logger.info(
+            f"FRED API Key: {'설정됨' if self.fred_api_key else '설정되지 않음'}"
+        )
 
     async def _retry_with_backoff(self, func, *args, **kwargs):
         """지수 백오프를 사용한 재시도 로직"""
@@ -89,10 +106,12 @@ class MacroeconomicClient(BaseMCPClient):
                 )
                 await asyncio.sleep(delay)
 
-    def _get_cache_key(self, func_name: str, **kwargs) -> str:
+    def _get_cache_key(self, operation: str, params: Dict[str, Any]) -> str:
         """캐시 키 생성"""
-        params_str = "&".join([f"{k}={v}" for k, v in sorted(kwargs.items())])
-        return f"{func_name}:{params_str}"
+        import hashlib
+
+        key_data = f"{operation}:{str(sorted(params.items()))}"
+        return hashlib.md5(key_data.encode()).hexdigest()
 
     def _is_cache_valid(self, cache_key: str) -> bool:
         """캐시 유효성 검사"""
@@ -103,69 +122,95 @@ class MacroeconomicClient(BaseMCPClient):
         return elapsed < self._cache_ttl
 
     async def collect_data(
-        self, category: str, params: Dict[str, Any] = None, source: str = "default"
+        self, category: str, params: Dict[str, Any] = None, source: str = "auto"
     ) -> Dict[str, Any]:
-        """데이터 수집 - 실제 데이터 사용"""
+        """데이터 수집 - 실제 API 사용"""
         try:
             # params가 None이면 기본값 설정
             if params is None:
                 params = {}
 
             max_records = params.get("max_records", 100)
-            start_date = params.get("start_date", None)
-            end_date = params.get("end_date", None)
+            start_date = params.get("start_date", "2023-01-01")
+            end_date = params.get("end_date", datetime.now().strftime("%Y-%m-%d"))
 
             cache_key = self._get_cache_key(
                 "collect_data",
-                category=category,
-                max_records=max_records,
-                source=source,
-                start_date=start_date,
-                end_date=end_date,
+                {"category": category, "params": params, "source": source},
             )
 
             # 캐시 확인
             if self._is_cache_valid(cache_key):
-                logger.info(f"Cache hit: collect_data for '{category}'")
+                logger.info(f"Cache hit: {cache_key}")
                 return self._cache[cache_key]
 
-            # 실제 데이터 수집 (실제 API 호출 시뮬레이션)
-            await asyncio.sleep(0.1)  # API 호출 시뮬레이션
-
-            # 실제 데이터 구조로 응답 생성
+            # 실제 데이터 수집
             records = []
-            for i in range(min(max_records, 50)):  # 최대 50개로 제한
-                record = DataRecord(
-                    id=f"{category}_{i+1}",
-                    timestamp=datetime.now() - timedelta(hours=i),
-                    value=100.0 + (i * 0.5) + (hash(category) % 10),  # 카테고리별 변동
-                    category=category,
-                    source=source,
-                    metadata={
-                        "quality_score": 0.9 - (i * 0.01),
-                        "confidence": 0.95 - (i * 0.005),
-                        "version": "1.0",
-                    },
-                )
-                records.append(record)
+
+            if source == "auto" or source == "ecos":
+                # ECOS 데이터 시도
+                try:
+                    if category in ["GDP", "CPI", "INTEREST_RATE", "EXCHANGE_RATE"]:
+                        ecos_records = await self._fetch_ecos_data(
+                            category, start_date, end_date
+                        )
+                        records.extend(ecos_records)
+                        logger.info(f"ECOS에서 {len(ecos_records)}개 데이터 수집 완료")
+                except Exception as e:
+                    logger.warning(f"ECOS 데이터 수집 실패: {e}")
+
+            if source == "auto" or source == "fred":
+                # FRED 데이터 시도
+                try:
+                    if category in ["UNEMPLOYMENT", "INFLATION", "TRADE_BALANCE"]:
+                        # FRED 시리즈 ID 매핑
+                        fred_mapping = {
+                            "UNEMPLOYMENT": "UNRATE",  # 실업률
+                            "INFLATION": "CPIAUCSL",  # CPI
+                            "TRADE_BALANCE": "BOPGSTB",  # 무역수지
+                        }
+
+                        if category in fred_mapping:
+                            fred_records = await self._fetch_fred_data(
+                                fred_mapping[category], start_date, end_date
+                            )
+                            records.extend(fred_records)
+                            logger.info(
+                                f"FRED에서 {len(fred_records)}개 데이터 수집 완료"
+                            )
+                except Exception as e:
+                    logger.warning(f"FRED 데이터 수집 실패: {e}")
+
+            # 데이터가 없으면 더미 데이터 생성 (폴백)
+            if not records:
+                logger.warning("실제 API 데이터 수집 실패, 더미 데이터 생성")
+                records = await self._generate_dummy_data(category, max_records, source)
+
+            # 최대 개수 제한
+            records = records[:max_records]
 
             result = {
                 "success": True,
+                "total_collected": len(records),
                 "category": category,
                 "source": source,
-                "total_collected": len(records),
                 "records": [
                     {
-                        "id": record.id,
-                        "timestamp": record.timestamp.isoformat(),
-                        "value": record.value,
-                        "category": record.category,
-                        "source": record.source,
-                        "metadata": record.metadata,
+                        "id": record["id"],
+                        "timestamp": record["timestamp"].isoformat(),
+                        "value": record["value"],
+                        "category": record["category"],
+                        "source": record["source"],
+                        "metadata": record["metadata"],
                     }
                     for record in records
                 ],
                 "collection_timestamp": datetime.now().isoformat(),
+                "data_quality": (
+                    "real"
+                    if records and records[0].get("source") in ["ECOS", "FRED"]
+                    else "dummy"
+                ),
             }
 
             # 캐시 업데이트
@@ -173,7 +218,7 @@ class MacroeconomicClient(BaseMCPClient):
             self._cache_timestamps[cache_key] = time.time()
 
             logger.info(
-                f"Data collected successfully: {category} -> {len(records)} records"
+                f"Data collected successfully: {category} -> {len(records)} records (quality: {result['data_quality']})"
             )
             return result
 
@@ -182,6 +227,173 @@ class MacroeconomicClient(BaseMCPClient):
             raise DataProcessingError(
                 f"데이터 수집 실패: {e}", "COLLECTION_ERROR"
             ) from e
+
+    async def _fetch_ecos_data(
+        self, indicator: str, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        """ECOS API에서 경제 데이터 가져오기"""
+        if not self.ecos_api_key:
+            raise DataProcessingError("ECOS API 키가 설정되지 않았습니다", "NO_API_KEY")
+
+        try:
+            # 지표 코드 매핑
+            indicator_mapping = {
+                "GDP": "200Y001",  # 국내총생산
+                "CPI": "901Y009",  # 소비자물가지수
+                "INTEREST_RATE": "721Y001",  # 기준금리
+                "EXCHANGE_RATE": "036Y001",  # 원/달러 환율
+                "KOSPI": "901Y013",  # KOSPI 지수
+                "UNEMPLOYMENT": "901Y014",  # 실업률
+            }
+
+            # 실제 지표 코드 가져오기
+            actual_indicator = indicator_mapping.get(indicator, indicator)
+
+            # 날짜 형식 결정 (연도만 있으면 연간, 월이 있으면 월간)
+            if len(start_date) == 4:  # YYYY 형식
+                cycle = "A"  # 연간
+            else:  # YYYYMM 형식
+                cycle = "M"  # 월간
+
+            # ECOS API 호출
+            url = f"{self.ecos_base_url}/StatisticSearch/{self.ecos_api_key}/json/kr/1/1000/{actual_indicator}/{cycle}/{start_date}/{end_date}"
+
+            response = requests.get(url, timeout=self.default_timeout)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if "StatisticSearch" not in data:
+                raise DataProcessingError(
+                    "ECOS API 응답 형식이 올바르지 않습니다", "INVALID_RESPONSE"
+                )
+
+            # 데이터 파싱 및 변환
+            records = []
+            for item in data["StatisticSearch"]["row"]:
+                try:
+                    # 시간 형식 파싱
+                    time_str = item.get("TIME", "")
+                    if len(time_str) == 4:  # YYYY
+                        timestamp = datetime.strptime(time_str, "%Y")
+                    elif len(time_str) == 6:  # YYYYMM
+                        timestamp = datetime.strptime(time_str, "%Y%m")
+                    else:
+                        continue
+
+                    value = float(item.get("DATA_VALUE", 0))
+
+                    record = {
+                        "id": f"{indicator}_{item.get('TIME', '')}",
+                        "timestamp": timestamp,
+                        "value": value,
+                        "category": indicator,
+                        "source": "ECOS",
+                        "metadata": {
+                            "unit": item.get("UNIT_NAME", ""),
+                            "frequency": "연간" if cycle == "A" else "월간",
+                            "data_type": "official",
+                            "stat_name": item.get("STAT_NAME", ""),
+                            "item_name": item.get("ITEM_NAME1", ""),
+                        },
+                    }
+                    records.append(record)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"데이터 파싱 실패: {item}, 에러: {e}")
+                    continue
+
+            return records
+
+        except requests.RequestException as e:
+            raise DataProcessingError(f"ECOS API 호출 실패: {e}", "API_ERROR") from e
+        except Exception as e:
+            raise DataProcessingError(
+                f"ECOS 데이터 처리 실패: {e}", "PROCESSING_ERROR"
+            ) from e
+
+    async def _fetch_fred_data(
+        self, series_id: str, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        """FRED API에서 경제 데이터 가져오기"""
+        if not self.fred_api_key:
+            raise DataProcessingError("FRED API 키가 설정되지 않았습니다", "NO_API_KEY")
+
+        try:
+            # FRED API 호출
+            params = {
+                "series_id": series_id,
+                "api_key": self.fred_api_key,
+                "file_type": "json",
+                "observation_start": start_date,
+                "observation_end": end_date,
+            }
+
+            response = requests.get(
+                self.fred_base_url, params=params, timeout=self.default_timeout
+            )
+            response.raise_for_status()
+
+            data = response.json()
+
+            if "observations" not in data:
+                raise DataProcessingError(
+                    "FRED API 응답 형식이 올바르지 않습니다", "INVALID_RESPONSE"
+                )
+
+            # 데이터 파싱 및 변환
+            records = []
+            for item in data["observations"]:
+                try:
+                    timestamp = datetime.strptime(item.get("date", ""), "%Y-%m-%d")
+                    value = float(item.get("value", 0))
+
+                    record = {
+                        "id": f"{series_id}_{item.get('date', '')}",
+                        "timestamp": timestamp,
+                        "value": value,
+                        "category": series_id,
+                        "source": "FRED",
+                        "metadata": {
+                            "unit": "원본 단위",
+                            "frequency": "일별",
+                            "data_type": "official",
+                        },
+                    }
+                    records.append(record)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"데이터 파싱 실패: {item}, 에러: {e}")
+                    continue
+
+            return records
+
+        except requests.RequestException as e:
+            raise DataProcessingError(f"FRED API 호출 실패: {e}", "API_ERROR") from e
+        except Exception as e:
+            raise DataProcessingError(
+                f"FRED 데이터 처리 실패: {e}", "PROCESSING_ERROR"
+            ) from e
+
+    async def _generate_dummy_data(
+        self, category: str, max_records: int, source: str
+    ) -> List[Dict[str, Any]]:
+        """더미 데이터 생성 (폴백용)"""
+        records = []
+        for i in range(min(max_records, 50)):
+            record = {
+                "id": f"{category}_{i+1}",
+                "timestamp": datetime.now() - timedelta(hours=i),
+                "value": 100.0 + (i * 0.5) + (hash(category) % 10),
+                "category": category,
+                "source": source,
+                "metadata": {
+                    "quality_score": 0.9 - (i * 0.01),
+                    "confidence": 0.95 - (i * 0.005),
+                    "version": "1.0",
+                    "data_type": "dummy",
+                },
+            }
+            records.append(record)
+        return records
 
     async def process_data_batch(
         self, data_records: List[Dict[str, Any]], operation: str = "validate"
@@ -496,7 +708,7 @@ class MacroeconomicClient(BaseMCPClient):
                 "parameters": {
                     "category": "데이터 카테고리",
                     "max_records": "최대 수집 레코드 수",
-                    "source": "데이터 소스",
+                    "source": "데이터 소스 (auto, ecos, fred)",
                 },
             },
             {

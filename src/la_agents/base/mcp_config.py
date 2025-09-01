@@ -5,7 +5,6 @@ MCP 서버 설정 및 클라이언트 생성 헬퍼.
 표준 패턴으로 MCP 도구를 로딩하기 위한 공통 설정과 유틸리티 함수들을 제공합니다.
 """
 
-import os
 from typing import Dict, List
 
 import structlog
@@ -17,43 +16,32 @@ logger = structlog.get_logger(__name__)
 class MCPServerConfig:
     """MCP 서버 설정 관리 클래스"""
 
-    # Docker 환경 감지
-    IS_DOCKER = os.getenv("IS_DOCKER", "false").lower() == "true"
-
-    # 로그 출력
-    if IS_DOCKER:
-        logger.info(
-            "Docker environment detected - using container names for MCP servers"
-        )
-    else:
-        logger.info("Local environment detected - using localhost for MCP servers")
-
-    # 표준 MCP 서버 설정 - Docker 환경에 따라 동적으로 설정
+    # 표준 MCP 서버 설정 - Docker Compose에서는 컨테이너 이름 사용
     STANDARD_MCP_SERVERS = {
         # 내가 만든 MCP 서버들
         "kiwoom": {
             "transport": "streamable_http",
-            "url": f"http://{'kiwoom' if IS_DOCKER else 'localhost'}:8030/mcp",
+            "url": "http://kiwoom_mcp:8030/mcp/",
         },
         "stock_analysis": {
             "transport": "streamable_http",
-            "url": f"http://{'stock_analysis' if IS_DOCKER else 'localhost'}:8042/mcp",
+            "url": "http://stock_analysis_mcp:8052/mcp/",
         },
         "financial_analysis": {
             "transport": "streamable_http",
-            "url": f"http://{'financial_analysis' if IS_DOCKER else 'localhost'}:8040/mcp",
+            "url": "http://financial_analysis_mcp:8041/mcp/",
         },
         "macroeconomic": {
             "transport": "streamable_http",
-            "url": f"http://{'macroeconomic' if IS_DOCKER else 'localhost'}:8041/mcp",
+            "url": "http://macroeconomic_mcp:8042/mcp/",
         },
         "naver_news": {
             "transport": "streamable_http",
-            "url": f"http://{'naver_news' if IS_DOCKER else 'localhost'}:8050/mcp",
+            "url": "http://naver_news_mcp:8051/mcp/",
         },
         "tavily_search": {
             "transport": "streamable_http",
-            "url": f"http://{'tavily_search' if IS_DOCKER else 'localhost'}:3020/mcp",
+            "url": "http://tavily_search_mcp:8053/mcp/",
         },
     }
 
@@ -69,6 +57,11 @@ class MCPServerConfig:
         ],
         "portfolio": ["stock_analysis", "financial_analysis", "macroeconomic"],
     }
+
+    @classmethod
+    def get_standard_servers(cls) -> Dict[str, Dict[str, str]]:
+        """표준 MCP 서버 설정을 반환"""
+        return cls.STANDARD_MCP_SERVERS
 
     @classmethod
     def get_server_configs(cls, server_names: List[str]) -> Dict[str, Dict[str, str]]:
@@ -118,18 +111,24 @@ async def create_mcp_client_and_tools(server_configs: Dict[str, Dict[str, str]])
 
         logger.info(f"Creating MCP client for servers: {list(server_configs.keys())}")
 
-        # MultiServerMCPClient 생성
-        # NOTE: langchain-mcp-adapters 라이브러리 사용
+        # MultiServerMCPClient 생성 (langchain-mcp-adapters 문서에 따른 방식)
         mcp_client = MultiServerMCPClient(server_configs)
 
-        # 도구 로딩 - TaskGroup 오류 디버깅을 위해 더 자세한 에러 처리
+        # 도구 로딩 - 문서에 따른 올바른 방식
         try:
+            # 문서 예시: client = MultiServerMCPClient(...) → tools = await client.get_tools()
             tools = await mcp_client.get_tools()
+            logger.info(f"MCP 도구 로딩 성공: {len(tools)}개 도구")
         except BaseExceptionGroup as eg:
-            # TaskGroup에서 발생한 모든 예외 출력
-            logger.error(f"TaskGroup errors: {len(eg.exceptions)} exceptions")
+            # TaskGroup에서 발생한 모든 예외를 자세히 로깅
+            logger.error(
+                f"MCP 도구 로딩 실패 - TaskGroup errors: {len(eg.exceptions)} exceptions"
+            )
             for i, exc in enumerate(eg.exceptions):
                 logger.error(f"  Exception {i+1}: {type(exc).__name__}: {exc}")
+            raise
+        except Exception as e:
+            logger.error(f"MCP 도구 로딩 중 예상치 못한 오류: {type(e).__name__}: {e}")
             raise
 
         logger.info(

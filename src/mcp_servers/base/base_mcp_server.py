@@ -121,14 +121,6 @@ class BaseMCPServer(ABC):
                 enable_health_check=True,
             )
 
-    def _setup_middlewares(
-        self, enable_middlewares: bool, middleware_config: Dict[str, Any]
-    ):
-        """미들웨어를 설정합니다."""
-        # 미들웨어는 기본적으로 활성화되어 있음 (MiddlewareManager 생성자에서)
-        # 추가 설정이 필요한 경우 여기서 처리
-        pass
-
     def _setup_logging(self):
         """로깅을 설정합니다."""
         log_level = logging.DEBUG if self.debug else logging.INFO
@@ -142,6 +134,25 @@ class BaseMCPServer(ABC):
             )
         else:
             self.logger.setLevel(log_level)
+
+    def _setup_middlewares(
+        self,
+        enable_middlewares: Optional[List[str]],
+        middleware_config: Optional[Dict[str, Any]],
+    ):
+        """미들웨어를 설정합니다."""
+        if enable_middlewares:
+            # bool 타입인 경우 기본 미들웨어 사용
+            if isinstance(enable_middlewares, bool):
+                enable_middlewares = ["logging", "error_handling", "monitoring"]
+
+            for middleware_name in enable_middlewares:
+                config = (
+                    middleware_config.get(middleware_name, {})
+                    if middleware_config
+                    else {}
+                )
+                self.middleware.enable_middleware(middleware_name, config)
 
     @abstractmethod
     def _initialize_clients(self):
@@ -343,10 +354,11 @@ class BaseMCPServer(ABC):
     def run_server(self):
         """서버를 실행합니다 (HTTP 모드)."""
         try:
-            self.logger.info(f"HTTP 서버 시작: {self.host}:{self.port}")
-            self.mcp.run_streamable_http_async(host=self.host, port=self.port)
+            self.logger.info(f"FastMCP 서버 시작: {self.host}:{self.port}")
+            # FastMCP의 올바른 실행 방법: mcp.run()
+            self.mcp.run(transport="http", host=self.host, port=self.port)
         except Exception as e:
-            self.logger.error(f"HTTP 서버 실행 실패: {e}")
+            self.logger.error(f"FastMCP 서버 실행 실패: {e}")
             raise
 
     def run_stdio(self):

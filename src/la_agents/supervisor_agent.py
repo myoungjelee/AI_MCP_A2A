@@ -14,7 +14,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
 # 원본 코드 패턴: OpenAI GPT-5 모델 사용
-from .base import BaseGraphAgent, handle_async_agent_errors
+from .base import BaseGraphAgent
 
 
 # Supervisor 에이전트 전용 상태 정의
@@ -640,7 +640,6 @@ class SupervisorAgent(BaseGraphAgent):
         else:
             return "매우 낮은 신뢰도로 재수집 및 재분석 권장"
 
-    @handle_async_agent_errors
     async def execute_workflow(
         self,
         request: Dict[str, Any],

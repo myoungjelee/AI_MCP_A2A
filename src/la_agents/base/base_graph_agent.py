@@ -1,252 +1,152 @@
 """
-LangGraph 에이전트의 기본 클래스
+LangGraph 에이전트 기본 클래스
 
-모든 LangGraph 에이전트는 이 클래스를 상속받아 구현합니다.
-MCP 서버 연결, 도구 로딩, 에러 처리 등의 공통 기능을 제공합니다.
+모든 LangGraph 에이전트가 상속받는 기본 클래스입니다.
 """
 
+import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 
-import structlog
-from langchain_core.language_models import BaseLanguageModel
-from langchain_core.tools import BaseTool
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph
 
-from .error_handling import (
-    AgentConfigurationError,
-    AgentExecutionError,
-    validate_agent_state,
-)
+from .error_handling import AgentError, ErrorHandler
 from .interrupt_manager import InterruptManager
-from .mcp_loader import load_specific_mcp_tools
+from .mcp_loader import MCPLoader
 
-logger = structlog.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class BaseGraphAgent(ABC):
-    """
-    LangGraph 에이전트의 기본 클래스
-
-    모든 LangGraph 에이전트는 이 클래스를 상속받아 구현합니다.
-    MCP 서버 연결, 도구 로딩, 에러 처리 등의 공통 기능을 제공합니다.
-    """
+    """LangGraph 에이전트 기본 클래스"""
 
     def __init__(
         self,
-        model: BaseLanguageModel,
-        agent_type: Optional[str] = None,
-        state_schema: Optional[Type] = None,
-        tools: Optional[List[BaseTool]] = None,
-        lazy_init: bool = False,
-        max_iterations: int = 10,
-        interrupt_manager: Optional[InterruptManager] = None,
-        **kwargs,
+        name: str,
+        mcp_servers: Optional[List[str]] = None,
+        config: Optional[Dict[str, Any]] = None,
     ):
-        """
-        BaseGraphAgent 초기화
+        """에이전트 초기화"""
+        self.name = name
+        self.config = config or {}
 
-        Args:
-            model: 언어 모델
-            agent_type: 에이전트 타입 (MCP 서버 자동 연결용)
-            state_schema: 상태 스키마
-            tools: 도구 목록
-            lazy_init: 지연 초기화 여부
-            max_iterations: 최대 반복 횟수
-            interrupt_manager: 인터럽트 관리자
-            **kwargs: 추가 인자
-        """
-        self.model = model
-        self.agent_type = agent_type
-        self.state_schema = state_schema
-        self.max_iterations = max_iterations
-        self.interrupt_manager = interrupt_manager or InterruptManager()
+        # 로깅 설정
+        self.logger = logging.getLogger(f"agent.{name}")
+        self._setup_logging()
 
-        # MCP 서버 자동 연결
-        self.mcp_server_names = self._get_mcp_servers_for_agent(agent_type)
-        self.mcp_tools = []
+        # MCP 로더 초기화
+        self.mcp_loader = MCPLoader(mcp_servers or [])
 
-        # 도구 설정
-        self._tools = tools or []
+        # 에러 핸들러 초기화
+        self.error_handler = ErrorHandler()
 
-        # 워크플로우
-        self.workflow: Optional[StateGraph] = None
+        # 인터럽트 매니저 초기화
+        self.interrupt_manager = InterruptManager()
 
-        # 지연 초기화가 아닌 경우 즉시 초기화
-        if not lazy_init:
-            self._initialize_workflow()
+        # 워크플로우 그래프 초기화
+        self.workflow = None
+        self._build_workflow()
 
-    def _get_mcp_servers_for_agent(self, agent_type: Optional[str]) -> List[str]:
-        """에이전트 타입에 따라 필요한 MCP 서버 목록 반환"""
-        if not agent_type:
-            return []
+        # 상태 초기화
+        self.current_state = None
 
-        try:
-            from .mcp_config import get_mcp_servers_for_agent
+        self.logger.info(f"에이전트 '{name}' 초기화 완료")
 
-            return get_mcp_servers_for_agent(agent_type)
-        except ImportError:
-            logger.warning(f"MCP 설정을 불러올 수 없습니다: {agent_type}")
-            return []
+    def _setup_logging(self):
+        """로깅 설정"""
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
 
-    async def _load_mcp_tools(self) -> List[BaseTool]:
-        """MCP 서버에서 도구들을 로딩"""
-        if not self.mcp_server_names:
-            return []
+    def _build_workflow(self):
+        """워크플로우 구축"""
+        # StateGraph 초기화
+        self.workflow = StateGraph(self._get_state_type())
 
-        try:
-            logger.info(f"MCP 도구 로딩 시작: {self.mcp_server_names}")
-            tools = await load_specific_mcp_tools(self.mcp_server_names)
-            logger.info(f"MCP 도구 로딩 완료: {len(tools)}개")
-            return tools
-        except Exception as e:
-            logger.error(f"MCP 도구 로딩 실패: {e}")
-            return []
-
-    def _initialize_workflow(self):
-        """워크플로우 초기화"""
-        if not self.state_schema:
-            raise AgentConfigurationError("state_schema가 설정되지 않았습니다")
-
-        # 워크플로우 생성
-        self.workflow = StateGraph(self.state_schema)
-
-        # 노드와 엣지 초기화
-        self.init_nodes(self.workflow)
-        self.init_edges(self.workflow)
+        # 하위 클래스에서 노드와 엣지를 추가
+        self._add_nodes()
+        self._add_edges()
 
         # 워크플로우 컴파일
         self.workflow = self.workflow.compile()
 
-        logger.info(f"워크플로우 초기화 완료: {self.__class__.__name__}")
-
-    async def initialize(self):
-        """에이전트 초기화 (비동기)"""
-        try:
-            # MCP 도구 로딩
-            self.mcp_tools = await self._load_mcp_tools()
-
-            # 모든 도구 통합
-            all_tools = self._tools + self.mcp_tools
-
-            # 워크플로우가 아직 초기화되지 않은 경우 초기화
-            if not self.workflow:
-                self._initialize_workflow()
-
-            logger.info(
-                f"에이전트 초기화 완료: {self.__class__.__name__}, 도구: {len(all_tools)}개"
-            )
-
-        except Exception as e:
-            logger.error(f"에이전트 초기화 실패: {e}")
-            raise AgentConfigurationError(f"초기화 실패: {e}") from e
-
     @abstractmethod
-    def init_nodes(self, graph: StateGraph):
-        """워크플로우 노드 초기화"""
+    def _add_nodes(self):
+        """노드 추가 (하위 클래스에서 구현)"""
         pass
 
     @abstractmethod
-    def init_edges(self, graph: StateGraph):
-        """워크플로우 엣지 초기화"""
+    def _add_edges(self):
+        """엣지 추가 (하위 클래스에서 구현)"""
         pass
 
-    def build_graph(self) -> StateGraph:
-        """워크플로우 그래프 빌드"""
-        if not self.workflow:
-            self._initialize_workflow()
-        return self.workflow
+    @abstractmethod
+    def _create_initial_state(self, **kwargs) -> Dict[str, Any]:
+        """초기 상태 생성 (하위 클래스에서 구현)"""
+        pass
 
-    async def invoke(
-        self,
-        input_data: Dict[str, Any],
-        config: Optional[Dict[str, Any]] = None,
-        **kwargs,
-    ) -> Dict[str, Any]:
-        """
-        워크플로우 실행
-
-        Args:
-            input_data: 입력 데이터
-            config: 실행 설정
-            **kwargs: 추가 인자
-
-        Returns:
-            실행 결과
-        """
+    async def start(self, **kwargs) -> Dict[str, Any]:
+        """에이전트 실행 시작"""
         try:
-            # 에이전트가 초기화되지 않은 경우 초기화
-            if not self.workflow:
-                await self.initialize()
+            self.logger.info(f"에이전트 '{self.name}' 실행 시작")
 
-            # 입력 데이터 검증
-            validate_agent_state(input_data, self.state_schema)
+            # 초기 상태 생성
+            initial_state = self._create_initial_state(**kwargs)
 
-            # 인터럽트 체크
-            if self.interrupt_manager.should_interrupt():
-                raise AgentExecutionError("에이전트 실행이 인터럽트되었습니다")
+            # MCP 서버들 연결
+            await self.mcp_loader.connect_all()
 
             # 워크플로우 실행
-            result = await self.workflow.ainvoke(input_data, config=config, **kwargs)
+            config = RunnableConfig(
+                callbacks=[self.interrupt_manager.get_callback()],
+                configurable={"thread_id": self.name},
+            )
 
-            logger.info(f"워크플로우 실행 완료: {self.__class__.__name__}")
+            result = await self.workflow.ainvoke(initial_state, config)
+
+            self.logger.info(f"에이전트 '{self.name}' 실행 완료")
             return result
 
         except Exception as e:
-            logger.error(f"워크플로우 실행 실패: {e}")
-            raise AgentExecutionError(f"실행 실패: {e}") from e
+            self.logger.error(f"에이전트 '{self.name}' 실행 실패: {e}")
+            await self.error_handler.handle_error(e, self.name)
+            raise AgentError(f"에이전트 실행 실패: {e}") from e
 
-    def get_tools(self) -> List[BaseTool]:
-        """사용 가능한 모든 도구 반환"""
-        return self._tools + self.mcp_tools
+        finally:
+            # MCP 서버들 연결 해제
+            await self.mcp_loader.disconnect_all()
 
-    def add_tool(self, tool: BaseTool):
-        """도구 추가"""
-        self._tools.append(tool)
+    async def stop(self):
+        """에이전트 중지"""
+        try:
+            self.logger.info(f"에이전트 '{self.name}' 중지")
+            await self.interrupt_manager.interrupt()
+            await self.mcp_loader.disconnect_all()
+        except Exception as e:
+            self.logger.error(f"에이전트 '{self.name}' 중지 실패: {e}")
 
-    def remove_tool(self, tool_name: str):
-        """도구 제거"""
-        self._tools = [t for t in self._tools if t.name != tool_name]
-
-    def get_mcp_server_names(self) -> List[str]:
-        """연결된 MCP 서버 이름 목록 반환"""
-        return self.mcp_server_names.copy()
-
-    def is_mcp_connected(self, server_name: str) -> bool:
-        """특정 MCP 서버 연결 여부 확인"""
-        return server_name in self.mcp_server_names
-
-    async def test_mcp_connections(self) -> Dict[str, bool]:
-        """MCP 서버 연결 상태 테스트"""
-        from .mcp_loader import test_mcp_connection
-
-        results = {}
-        for server_name in self.mcp_server_names:
-            try:
-                # 간단한 연결 테스트
-                is_connected = await test_mcp_connection(server_name)
-                results[server_name] = is_connected
-            except Exception as e:
-                logger.error(f"MCP 서버 {server_name} 연결 테스트 실패: {e}")
-                results[server_name] = False
-
-        return results
-
-    def get_agent_info(self) -> Dict[str, Any]:
-        """에이전트 정보 반환"""
+    def get_status(self) -> Dict[str, Any]:
+        """에이전트 상태 반환"""
         return {
-            "class_name": self.__class__.__name__,
-            "agent_type": self.agent_type,
-            "mcp_servers": self.mcp_server_names,
-            "total_tools": len(self.get_tools()),
-            "custom_tools": len(self._tools),
-            "mcp_tools": len(self.mcp_tools),
-            "max_iterations": self.max_iterations,
-            "workflow_initialized": self.workflow is not None,
+            "name": self.name,
+            "status": "running" if self.workflow else "stopped",
+            "mcp_servers": self.mcp_loader.get_connected_servers(),
+            "interrupts": self.interrupt_manager.get_interrupt_count(),
+            "errors": self.error_handler.get_error_count(),
         }
 
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(agent_type={self.agent_type}, tools={len(self.get_tools())})"
+    def get_workflow_info(self) -> Dict[str, Any]:
+        """워크플로우 정보 반환"""
+        return {
+            "state_type": self._get_state_type().__name__,
+            "compiled": self.workflow is not None,
+            "nodes": [],  # 실제로는 워크플로우에서 추출
+            "edges": [],  # 실제로는 워크플로우에서 추출
+        }
 
-    def __str__(self) -> str:
-        return self.__repr__()
+    @abstractmethod
+    def _get_state_type(self):
+        """상태 타입 반환 (하위 클래스에서 구현)"""
+        pass

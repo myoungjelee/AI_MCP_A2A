@@ -21,42 +21,14 @@ import logging
 from typing import Any, Dict, Literal
 
 from ..base.base_mcp_server import BaseMCPServer
-from ..base.config import MCPServerConfig
 from .client import FinancialAnalysisClient
 
 
 class FinancialAnalysisMCPServer(BaseMCPServer):
     """재무 분석 시스템 MCP 서버 (BaseMCPServer 상속)"""
 
-    def __init__(self, port: int = 8045, host: str = "0.0.0.0", debug: bool = False, **kwargs):
-        # 기본 설정
-        config = MCPServerConfig.from_env(name="financial_analysis")
-        config.port = port
-        config.host = host
-        config.debug = debug
-        
-        # 미들웨어 설정
-        middleware_config = {
-            "logging": {
-                "log_level": "DEBUG" if debug else "INFO",
-                "include_traceback": debug,
-            },
-            "error_handling": {
-                "include_traceback": debug,
-            },
-        }
-
-        super().__init__(
-            name="financial_analysis",
-            port=port,
-            host=host,
-            debug=debug,
-            server_instructions="재무 데이터 수집, 재무비율 계산, DCF 밸류에이션, 투자 분석 리포트 생성 등 재무 분석 기능을 제공합니다",
-            config=config,
-            enable_middlewares=True,
-            middleware_config=middleware_config,
-            **kwargs
-        )
+    def __init__(self, port: int = 8041, debug: bool = False):
+        super().__init__("financial_analysis", port=port, debug=debug)
 
     def _initialize_clients(self) -> None:
         """재무 분석 클라이언트 초기화"""
@@ -75,17 +47,23 @@ class FinancialAnalysisMCPServer(BaseMCPServer):
             # 미들웨어 적용
             if self.financial_client:
                 # 클라이언트 메서드에 미들웨어 적용
-                self.financial_client.get_financial_data = self.middleware.apply_all("재무 데이터 조회")(
-                    self.financial_client.get_financial_data
+                self.financial_client.get_financial_data = self.middleware.apply_all(
+                    "재무 데이터 조회"
+                )(self.financial_client.get_financial_data)
+                self.financial_client.calculate_financial_ratios = (
+                    self.middleware.apply_all("재무비율 계산")(
+                        self.financial_client.calculate_financial_ratios
+                    )
                 )
-                self.financial_client.calculate_financial_ratios = self.middleware.apply_all("재무비율 계산")(
-                    self.financial_client.calculate_financial_ratios
+                self.financial_client.calculate_dcf_valuation = (
+                    self.middleware.apply_all("DCF 밸류에이션")(
+                        self.financial_client.calculate_dcf_valuation
+                    )
                 )
-                self.financial_client.calculate_dcf_valuation = self.middleware.apply_all("DCF 밸류에이션")(
-                    self.financial_client.calculate_dcf_valuation
-                )
-                self.financial_client.generate_investment_report = self.middleware.apply_all("투자 분석 리포트 생성")(
-                    self.financial_client.generate_investment_report
+                self.financial_client.generate_investment_report = (
+                    self.middleware.apply_all("투자 분석 리포트 생성")(
+                        self.financial_client.generate_investment_report
+                    )
                 )
 
             @self.mcp.tool()
@@ -111,7 +89,9 @@ class FinancialAnalysisMCPServer(BaseMCPServer):
                             f"get_financial_data: {symbol}",
                         )
 
-                    result = await self.financial_client.get_financial_data(symbol, data_type)
+                    result = await self.financial_client.get_financial_data(
+                        symbol, data_type
+                    )
                     return self.create_standard_response(
                         success=True,
                         query=f"get_financial_data: {symbol}",
@@ -143,7 +123,9 @@ class FinancialAnalysisMCPServer(BaseMCPServer):
                             f"calculate_financial_ratios: {symbol}",
                         )
 
-                    result = await self.financial_client.calculate_financial_ratios(symbol)
+                    result = await self.financial_client.calculate_financial_ratios(
+                        symbol
+                    )
                     return self.create_standard_response(
                         success=True,
                         query=f"calculate_financial_ratios: {symbol}",
@@ -213,7 +195,9 @@ class FinancialAnalysisMCPServer(BaseMCPServer):
                             f"generate_investment_report: {symbol}",
                         )
 
-                    result = await self.financial_client.generate_investment_report(symbol)
+                    result = await self.financial_client.generate_investment_report(
+                        symbol
+                    )
                     return self.create_standard_response(
                         success=True,
                         query=f"generate_investment_report: {symbol}",
@@ -247,19 +231,27 @@ class FinancialAnalysisMCPServer(BaseMCPServer):
 def main():
     """메인 함수"""
     import asyncio
-    
-    async def run_server():
-        server = FinancialAnalysisMCPServer(port=8045, debug=True)
-        await server.start_server()
-        
-        try:
-            # 서버 실행 중 대기
-            while True:
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            await server.stop_server()
-    
-    asyncio.run(run_server())
+
+    # 로거 설정
+    logger = logging.getLogger(__name__)
+
+    # 서버 인스턴스 생성
+    server = FinancialAnalysisMCPServer(port=8041, debug=True)
+
+    try:
+        # 서버 시작 준비
+        asyncio.run(server.start_server())
+
+        # FastMCP 서버 실행 (HTTP 모드)
+        server.run_server()
+
+    except KeyboardInterrupt:
+        logger.info("서버가 사용자에 의해 중단되었습니다.")
+    except Exception as e:
+        logger.error(f"서버 실행 중 오류 발생: {e}")
+    finally:
+        # 서버 정리
+        asyncio.run(server.stop_server())
 
 
 if __name__ == "__main__":

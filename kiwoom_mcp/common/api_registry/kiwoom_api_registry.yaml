@@ -1,0 +1,2007 @@
+# Kiwoom Securities REST API Registry
+# 총 180개 API 정의 (공식 문서 기반)
+# Version: 1.0.0
+
+api_registry:
+  # ===== 1. OAuth 인증 API (2개) =====
+  au10001:
+    name: "접근토큰 발급"
+    description: "OAuth 2.0 클라이언트 자격증명을 사용하여 접근 토큰을 발급받습니다"
+    endpoint: "/oauth2/token"
+    method: "POST"
+    category: "auth"
+    required_params:
+      - grant_type: "client_credentials 고정값"
+      - appkey: "앱 키"
+      - secretkey: "앱 시크릿"
+    response_fields:
+      - token: "접근 토큰"
+      - token_type: "Bearer"
+      - expires_dt: "만료시간 (YYYYMMDDHHMMSS)"
+
+  au10002:
+    name: "접근토큰 폐기"
+    description: "발급받은 접근 토큰을 폐기합니다"
+    endpoint: "/oauth2/revoke"
+    method: "POST"
+    category: "auth"
+    required_params:
+      - appkey: "앱 키"
+      - secretkey: "앱 시크릿"
+      - token: "폐기할 토큰"
+    response_fields:
+      - return_code: "응답 코드"
+      - return_msg: "응답 메시지"
+
+  # ===== 2. 종목정보 API (28개) =====
+  ka10001:
+    name: "주식기본정보요청"
+    description: "종목의 기본 정보를 조회합니다"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+    response_fields:
+      - hts_kor_isnm: "종목명"
+      - stck_prpr: "현재가"
+      - prdy_vrss: "전일대비"
+      - prdy_ctrt: "전일대비율"
+
+  ka10002:
+    name: "주식거래원요청"
+    description: "종목의 거래원 정보를 조회합니다"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10003:
+    name: "체결정보요청"
+    description: "종목의 체결 정보를 조회합니다"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10013:
+    name: "신용매매동향요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+      - dt: "조회일자"
+      - qry_tp: "조회구분"
+
+  ka10015:
+    name: "일별거래상세요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+      - strt_dt: "시작일자"
+
+  ka10016:
+    name: "신고저가요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - ntl_tp: "신고저구분"
+      - high_low_close_tp: "고저종가구분"
+      - stk_cnd: "종목조건"
+      - trde_qty_tp: "거래량구분"
+      - crd_cnd: "신용조건"
+      - updown_incls: "등락포함"
+      - dt: "조회일자"
+      - stex_tp: "거래소구분"
+
+  ka10017:
+    name: "상하한가요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - updown_tp: "상하한구분"
+      - sort_tp: "정렬구분"
+      - stk_cnd: "종목조건"
+      - trde_qty_tp: "거래량구분"
+      - crd_cnd: "신용조건"
+      - trde_gold_tp: "거래대금구분"
+      - stex_tp: "거래소구분"
+
+  ka10018:
+    name: "고저가근접요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - high_low_tp: "고저구분"
+      - alacc_rt: "근접률"
+      - mrkt_tp: "시장구분"
+      - trde_qty_tp: "거래량구분"
+      - stk_cnd: "종목조건"
+      - crd_cnd: "신용조건"
+      - stex_tp: "거래소구분"
+
+  ka10019:
+    name: "가격급등락요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - flu_tp: "등락구분"
+      - tm_tp: "시간구분"
+      - tm: "시간"
+      - trde_qty_tp: "거래량구분"
+      - stk_cnd: "종목조건"
+      - crd_cnd: "신용조건"
+      - pric_cnd: "가격조건"
+      - updown_incls: "등락포함"
+      - stex_tp: "거래소구분"
+
+  ka10024:
+    name: "거래량갱신요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - cycle_tp: "주기구분"
+      - trde_qty_tp: "거래량구분"
+      - stex_tp: "거래소구분"
+
+  ka10025:
+    name: "매물대집중요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - prps_cnctr_rt: "매물집중률"
+      - cur_prc_entry: "현재가진입"
+      - prpscnt: "매물수"
+      - cycle_tp: "주기구분"
+      - stex_tp: "거래소구분"
+
+  ka10026:
+    name: "고저PER요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - pertp: "PER구분"
+      - stex_tp: "거래소구분"
+
+  ka10028:
+    name: "시가대비등락률요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - sort_tp: "정렬구분"
+      - trde_qty_cnd: "거래량조건"
+      - mrkt_tp: "시장구분"
+      - updown_incls: "등락포함"
+      - stk_cnd: "종목조건"
+      - crd_cnd: "신용조건"
+      - trde_prica_cnd: "거래대금조건"
+      - flu_cnd: "등락조건"
+      - stex_tp: "거래소구분"
+
+  ka10043:
+    name: "거래원매물대분석요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+      - qry_dt_tp: "조회일자구분"
+      - pot_tp: "매물구분"
+      - dt: "일자"
+      - sort_base: "정렬기준"
+      - mmcm_cd: "회원사코드"
+      - stex_tp: "거래소구분"
+
+  ka10052:
+    name: "거래원순간거래량요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mmcm_cd: "회원사코드"
+      - mrkt_tp: "시장구분"
+      - qty_tp: "수량구분"
+      - pric_tp: "가격구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - stk_cd: "종목코드"
+
+  ka10054:
+    name: "변동성완화장치발동종목요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - bf_mkrt_tp: "이전시장구분"
+      - motn_tp: "발동구분"
+      - skip_stk: "스킵종목"
+      - trde_qty_tp: "거래량구분"
+      - min_trde_qty: "최소거래량"
+      - max_trde_qty: "최대거래량"
+      - trde_prica_tp: "거래대금구분"
+      - min_trde_prica: "최소거래대금"
+      - max_trde_prica: "최대거래대금"
+      - motn_drc: "발동방향"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - stk_cd: "종목코드"
+
+  ka10055:
+    name: "당일전일체결량요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+      - tdy_pred: "당일전일구분"
+
+  ka10058:
+    name: "투자자별일별매매종목요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+      - trde_tp: "매매구분"
+      - mrkt_tp: "시장구분"
+      - invsr_tp: "투자자구분"
+      - stex_tp: "거래소구분"
+
+  ka10059:
+    name: "종목별투자자기관별요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - dt: "일자"
+      - stk_cd: "종목코드"
+      - amt_qty_tp: "금액수량구분"
+      - trde_tp: "매매구분"
+      - unit_tp: "단위구분"
+
+  ka10061:
+    name: "종목별투자자기관별합계요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+      - amt_qty_tp: "금액수량구분"
+      - trde_tp: "매매구분"
+      - unit_tp: "단위구분"
+
+  ka10084:
+    name: "당일전일체결요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+      - tdy_pred: "당일전일구분"
+      - tic_min: "틱분구분"
+    optional_params:
+      - tm: "시간"
+
+  ka10095:
+    name: "관심종목정보요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10099:
+    name: "종목정보 리스트"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+
+  ka10100:
+    name: "종목정보 조회"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10101:
+    name: "업종코드 리스트"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+
+  ka10102:
+    name: "회원사 리스트"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params: []
+
+  ka90003:
+    name: "프로그램순매수상위50요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - trde_upper_tp: "매매상위구분"
+      - amt_qty_tp: "금액수량구분"
+      - mrkt_tp: "시장구분"
+      - stex_tp: "거래소구분"
+
+  ka90004:
+    name: "종목별프로그램매매현황요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - dt: "일자"
+      - mrkt_tp: "시장구분"
+      - stex_tp: "거래소구분"
+
+  kt20016:
+    name: "신용융자 가능종목요청"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - mrkt_deal_tp: "시장거래구분"
+    optional_params:
+      - crd_stk_grde_tp: "신용주식등급구분"
+      - stk_cd: "종목코드"
+
+  kt20017:
+    name: "신용융자 가능문의"
+    endpoint: "/api/dostk/stkinfo"
+    method: "POST"
+    category: "stkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+
+  # ===== 3. 시세 API (21개) =====
+  ka10004:
+    name: "주식호가요청"
+    description: "종목의 호가 정보를 조회합니다"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+    response_fields:
+      - askp1: "매도호가1"
+      - bidp1: "매수호가1"
+      - askp_rsqn1: "매도호가잔량1"
+      - bidp_rsqn1: "매수호가잔량1"
+
+  ka10005:
+    name: "주식일주월시분요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10006:
+    name: "주식시분요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10007:
+    name: "시세표성정보요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10011:
+    name: "신주인수권전체시세요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - newstk_recvrht_tp: "신주인수권구분"
+
+  ka10044:
+    name: "일별기관매매종목요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+      - trde_tp: "매매구분"
+      - mrkt_tp: "시장구분"
+      - stex_tp: "거래소구분"
+
+  ka10045:
+    name: "종목별기관매매추이요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+      - orgn_prsm_unp_tp: "기관추정단가구분"
+      - for_prsm_unp_tp: "외국인추정단가구분"
+
+  ka10046:
+    name: "체결강도추이시간별요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10047:
+    name: "체결강도추이일별요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10063:
+    name: "장중투자자별매매요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - amt_qty_tp: "금액수량구분"
+      - invsr: "투자자구분"
+      - frgn_all: "외국인전체구분"
+      - smtm_netprps_tp: "동시순매수구분"
+      - stex_tp: "거래소구분"
+
+  ka10066:
+    name: "장마감후투자자별매매요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - amt_qty_tp: "금액수량구분"
+      - trde_tp: "매매구분"
+      - stex_tp: "거래소구분"
+
+  ka10078:
+    name: "증권사별종목매매동향요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - mmcm_cd: "회원사코드"
+      - stk_cd: "종목코드"
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+
+  ka10086:
+    name: "일별주가요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+      - qry_dt: "조회일자"
+      - indc_tp: "지표구분"
+
+  ka10087:
+    name: "시간외단일가요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka90005:
+    name: "프로그램매매추이요청 시간대별"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - date: "일자"
+      - amt_qty_tp: "금액수량구분"
+      - mrkt_tp: "시장구분"
+      - min_tic_tp: "분틱구분"
+      - stex_tp: "거래소구분"
+
+  ka90006:
+    name: "프로그램매매차익잔고추이요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - date: "일자"
+      - stex_tp: "거래소구분"
+
+  ka90007:
+    name: "프로그램매매누적추이요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - date: "일자"
+      - amt_qty_tp: "금액수량구분"
+      - mrkt_tp: "시장구분"
+      - stex_tp: "거래소구분"
+
+  ka90008:
+    name: "종목시간별프로그램매매추이요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - amt_qty_tp: "금액수량구분"
+      - stk_cd: "종목코드"
+      - date: "일자"
+
+  ka90010:
+    name: "프로그램매매추이요청 일자별"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - date: "일자"
+      - amt_qty_tp: "금액수량구분"
+      - mrkt_tp: "시장구분"
+      - min_tic_tp: "분틱구분"
+      - stex_tp: "거래소구분"
+
+  ka90013:
+    name: "종목일별프로그램매매추이요청"
+    endpoint: "/api/dostk/mrkcond"
+    method: "POST"
+    category: "mrkcond"
+    required_params:
+      - stk_cd: "종목코드"
+    optional_params:
+      - amt_qty_tp: "금액수량구분"
+      - date: "일자"
+
+  # ===== 4. 기관/외국인 API (3개) =====
+  ka10008:
+    name: "주식외국인종목별매매동향"
+    endpoint: "/api/dostk/frgnistt"
+    method: "POST"
+    category: "frgnistt"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10009:
+    name: "주식기관요청"
+    endpoint: "/api/dostk/frgnistt"
+    method: "POST"
+    category: "frgnistt"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10131:
+    name: "기관외국인연속매매현황요청"
+    endpoint: "/api/dostk/frgnistt"
+    method: "POST"
+    category: "frgnistt"
+    required_params:
+      - dt: "일자"
+      - mrkt_tp: "시장구분"
+      - netslmt_tp: "순매수매도구분"
+      - stk_inds_tp: "종목업종구분"
+      - amt_qty_tp: "금액수량구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+
+  # ===== 5. 업종 API (6개) =====
+  ka10010:
+    name: "업종프로그램요청"
+    endpoint: "/api/dostk/sect"
+    method: "POST"
+    category: "sect"
+    required_params:
+      - stk_cd: "업종코드"
+
+  ka10051:
+    name: "업종별투자자순매수요청"
+    endpoint: "/api/dostk/sect"
+    method: "POST"
+    category: "sect"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - amt_qty_tp: "금액수량구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - base_dt: "기준일자"
+
+  ka20001:
+    name: "업종현재가요청"
+    endpoint: "/api/dostk/sect"
+    method: "POST"
+    category: "sect"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - inds_cd: "업종코드"
+
+  ka20002:
+    name: "업종별주가요청"
+    endpoint: "/api/dostk/sect"
+    method: "POST"
+    category: "sect"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - inds_cd: "업종코드"
+      - stex_tp: "거래소구분"
+
+  ka20003:
+    name: "전업종지수요청"
+    endpoint: "/api/dostk/sect"
+    method: "POST"
+    category: "sect"
+    required_params:
+      - inds_cd: "업종코드"
+
+  ka20009:
+    name: "업종현재가일별요청"
+    endpoint: "/api/dostk/sect"
+    method: "POST"
+    category: "sect"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - inds_cd: "업종코드"
+
+  # ===== 6. 공매도 API (1개) =====
+  ka10014:
+    name: "공매도추이요청"
+    endpoint: "/api/dostk/shsa"
+    method: "POST"
+    category: "shsa"
+    required_params:
+      - stk_cd: "종목코드"
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+    optional_params:
+      - tm_tp: "시간구분"
+
+  # ===== 7. 순위정보 API (23개) =====
+  ka10020:
+    name: "호가잔량상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - sort_tp: "정렬구분"
+      - trde_qty_tp: "거래량구분"
+      - stk_cnd: "종목조건"
+      - crd_cnd: "신용조건"
+      - stex_tp: "거래소구분"
+
+  ka10021:
+    name: "호가잔량급증요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - trde_tp: "매매구분"
+      - sort_tp: "정렬구분"
+      - tm_tp: "시간구분"
+      - trde_qty_tp: "거래량구분"
+      - stk_cnd: "종목조건"
+      - stex_tp: "거래소구분"
+
+  ka10022:
+    name: "잔량율급증요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - rt_tp: "비율구분"
+      - tm_tp: "시간구분"
+      - trde_qty_tp: "거래량구분"
+      - stk_cnd: "종목조건"
+      - stex_tp: "거래소구분"
+
+  ka10023:
+    name: "거래량급증요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - sort_tp: "정렬구분"
+      - tm_tp: "시간구분"
+      - trde_qty_tp: "거래량구분"
+      - stk_cnd: "종목조건"
+      - pric_tp: "가격구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - tm: "시간"
+
+  ka10027:
+    name: "전일대비등락률상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - sort_tp: "정렬구분"
+      - trde_qty_cnd: "거래량조건"
+      - stk_cnd: "종목조건"
+      - crd_cnd: "신용조건"
+      - updown_incls: "등락포함"
+      - pric_cnd: "가격조건"
+      - trde_prica_cnd: "거래대금조건"
+      - stex_tp: "거래소구분"
+
+  ka10029:
+    name: "예상체결등락률상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - sort_tp: "정렬구분"
+      - trde_qty_cnd: "거래량조건"
+      - stk_cnd: "종목조건"
+      - crd_cnd: "신용조건"
+      - pric_cnd: "가격조건"
+      - stex_tp: "거래소구분"
+
+  ka10030:
+    name: "당일거래량상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - sort_tp: "정렬구분"
+      - mang_stk_incls: "관리종목포함"
+      - crd_tp: "신용구분"
+      - trde_qty_tp: "거래량구분"
+      - pric_tp: "가격구분"
+      - trde_prica_tp: "거래대금구분"
+      - mrkt_open_tp: "시장개장구분"
+      - stex_tp: "거래소구분"
+
+  ka10031:
+    name: "전일거래량상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - qry_tp: "조회구분"
+      - rank_strt: "순위시작"
+      - rank_end: "순위종료"
+      - stex_tp: "거래소구분"
+
+  ka10032:
+    name: "거래대금상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - mang_stk_incls: "관리종목포함"
+      - stex_tp: "거래소구분"
+
+  ka10033:
+    name: "신용비율상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - trde_qty_tp: "거래량구분"
+      - stk_cnd: "종목조건"
+      - updown_incls: "등락포함"
+      - crd_cnd: "신용조건"
+      - stex_tp: "거래소구분"
+
+  ka10034:
+    name: "외인기간별매매상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - trde_tp: "매매구분"
+      - dt: "일자"
+      - stex_tp: "거래소구분"
+
+  ka10035:
+    name: "외인연속순매매상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - trde_tp: "매매구분"
+      - base_dt_tp: "기준일자구분"
+      - stex_tp: "거래소구분"
+
+  ka10036:
+    name: "외인한도소진율증가상위"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - dt: "일자"
+      - stex_tp: "거래소구분"
+
+  ka10037:
+    name: "외국계창구매매상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - dt: "일자"
+      - trde_tp: "매매구분"
+      - sort_tp: "정렬구분"
+      - stex_tp: "거래소구분"
+
+  ka10038:
+    name: "종목별증권사순위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+      - qry_tp: "조회구분"
+      - dt: "일자"
+
+  ka10039:
+    name: "증권사별매매상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mmcm_cd: "회원사코드"
+      - trde_qty_tp: "거래량구분"
+      - trde_tp: "매매구분"
+      - dt: "일자"
+      - stex_tp: "거래소구분"
+
+  ka10040:
+    name: "당일주요거래원요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10042:
+    name: "순매수거래원순위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+      - qry_dt_tp: "조회일자구분"
+      - pot_tp: "매물구분"
+      - sort_base: "정렬기준"
+    optional_params:
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+      - dt: "일자"
+
+  ka10053:
+    name: "당일상위이탈원요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10062:
+    name: "동일순매매순위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - strt_dt: "시작일자"
+      - mrkt_tp: "시장구분"
+      - trde_tp: "매매구분"
+      - sort_cnd: "정렬조건"
+      - unit_tp: "단위구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - end_dt: "종료일자"
+
+  ka10065:
+    name: "장중투자자별매매상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - trde_tp: "매매구분"
+      - mrkt_tp: "시장구분"
+      - orgn_tp: "기관구분"
+
+  ka10098:
+    name: "시간외단일가등락율순위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - sort_base: "정렬기준"
+      - stk_cnd: "종목조건"
+      - trde_qty_cnd: "거래량조건"
+      - crd_cnd: "신용조건"
+      - trde_prica: "거래대금"
+
+  ka90009:
+    name: "외국인기관매매상위요청"
+    endpoint: "/api/dostk/rkinfo"
+    method: "POST"
+    category: "rkinfo"
+    required_params:
+      - mrkt_tp: "시장구분"
+      - amt_qty_tp: "금액수량구분"
+      - qry_dt_tp: "조회일자구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - date: "일자"
+
+  # ===== 8. 차트 API (10개) =====
+  ka10079:
+    name: "주식틱차트조회요청"
+    description: "틱 단위 차트 데이터를 조회합니다"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - stk_cd: "종목코드"
+      - tic_scope: "틱범위"
+      - upd_stkpc_tp: "수정주가구분"
+
+  ka10080:
+    name: "주식분봉차트조회요청"
+    description: "분 단위 차트 데이터를 조회합니다"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - stk_cd: "종목코드"
+      - tic_scope: "틱범위"
+      - upd_stkpc_tp: "수정주가구분"
+
+  ka10081:
+    name: "주식일봉차트조회요청"
+    description: "일 단위 차트 데이터를 조회합니다"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - stk_cd: "종목코드"
+      - base_dt: "기준일자"
+      - upd_stkpc_tp: "수정주가구분"
+
+  ka10082:
+    name: "주식주봉차트조회요청"
+    description: "주 단위 차트 데이터를 조회합니다"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - stk_cd: "종목코드"
+      - base_dt: "기준일자"
+      - upd_stkpc_tp: "수정주가구분"
+
+  ka10083:
+    name: "주식월봉차트조회요청"
+    description: "월 단위 차트 데이터를 조회합니다"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - stk_cd: "종목코드"
+      - base_dt: "기준일자"
+      - upd_stkpc_tp: "수정주가구분"
+
+  ka10094:
+    name: "주식년봉차트조회요청"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - stk_cd: "종목코드"
+      - base_dt: "기준일자"
+      - upd_stkpc_tp: "수정주가구분"
+
+  ka20004:
+    name: "업종틱차트조회요청"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - inds_cd: "업종코드"
+      - tic_scope: "틱범위"
+
+  ka20005:
+    name: "업종분봉조회요청"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - inds_cd: "업종코드"
+      - tic_scope: "틱범위"
+
+  ka20006:
+    name: "업종일봉조회요청"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - inds_cd: "업종코드"
+      - base_dt: "기준일자"
+
+  ka20007:
+    name: "업종주봉조회요청"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - inds_cd: "업종코드"
+      - base_dt: "기준일자"
+
+  ka20008:
+    name: "업종월봉조회요청"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - inds_cd: "업종코드"
+      - base_dt: "기준일자"
+
+  ka20019:
+    name: "업종년봉조회요청"
+    endpoint: "/api/dostk/chart"
+    method: "POST"
+    category: "chart"
+    required_params:
+      - inds_cd: "업종코드"
+      - base_dt: "기준일자"
+
+  # ===== 9. 대차거래 API (4개) =====
+  ka10068:
+    name: "대차거래추이요청"
+    endpoint: "/api/dostk/slb"
+    method: "POST"
+    category: "slb"
+    required_params:
+      - all_tp: "전체구분"
+    optional_params:
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+
+  ka10069:
+    name: "대차거래상위10종목요청"
+    endpoint: "/api/dostk/slb"
+    method: "POST"
+    category: "slb"
+    required_params:
+      - strt_dt: "시작일자"
+      - mrkt_tp: "시장구분"
+    optional_params:
+      - end_dt: "종료일자"
+
+  ka20068:
+    name: "대차거래추이요청(종목별)"
+    endpoint: "/api/dostk/slb"
+    method: "POST"
+    category: "slb"
+    required_params:
+      - stk_cd: "종목코드"
+    optional_params:
+      - all_tp: "전체구분"
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+
+  ka90012:
+    name: "대차거래내역요청"
+    endpoint: "/api/dostk/slb"
+    method: "POST"
+    category: "slb"
+    required_params:
+      - dt: "일자"
+      - mrkt_tp: "시장구분"
+
+  # ===== 10. 계좌 API (18개) =====
+  ka10072:
+    name: "일자별종목별실현손익요청_일자"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - stk_cd: "종목코드"
+      - strt_dt: "시작일자"
+
+  ka10073:
+    name: "일자별종목별실현손익요청_기간"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - stk_cd: "종목코드"
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+
+  ka10074:
+    name: "일자별실현손익요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+
+  ka10075:
+    name: "미체결요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - all_stk_tp: "전체종목구분"
+      - trde_tp: "매매구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - stk_cd: "종목코드"
+
+  ka10076:
+    name: "체결요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - qry_tp: "조회구분"
+      - sell_tp: "매도구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - stk_cd: "종목코드"
+      - ord_no: "주문번호"
+
+  ka10077:
+    name: "당일실현손익상세요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10085:
+    name: "계좌수익률요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - stex_tp: "거래소구분"
+
+  ka10088:
+    name: "미체결 분할주문 상세"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - ord_no: "주문번호"
+
+  ka10170:
+    name: "당일매매일지요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - ottks_tp: "시간외구분"
+      - ch_crd_tp: "변경신용구분"
+    optional_params:
+      - base_dt: "기준일자"
+
+  kt00001:
+    name: "예수금상세현황요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - qry_tp: "조회구분"
+
+  kt00002:
+    name: "일별추정예탁자산현황요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - start_dt: "시작일자"
+      - end_dt: "종료일자"
+
+  kt00003:
+    name: "추정자산조회요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - qry_tp: "조회구분"
+
+  kt00004:
+    name: "계좌평가현황요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - qry_tp: "조회구분"
+      - dmst_stex_tp: "국내거래소구분"
+
+  kt00005:
+    name: "체결잔고요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - dmst_stex_tp: "국내거래소구분"
+
+  kt00007:
+    name: "계좌별주문체결내역상세요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - qry_tp: "조회구분"
+      - stk_bond_tp: "주식채권구분"
+      - sell_tp: "매도구분"
+      - dmst_stex_tp: "국내거래소구분"
+    optional_params:
+      - ord_dt: "주문일자"
+      - stk_cd: "종목코드"
+      - fr_ord_no: "시작주문번호"
+
+  kt00008:
+    name: "계좌별익일결제예정내역요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params: []
+    optional_params:
+      - strt_dcd_seq: "시작감소순번"
+
+  kt00009:
+    name: "계좌별주문체결현황요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - stk_bond_tp: "주식채권구분"
+      - mrkt_tp: "시장구분"
+      - sell_tp: "매도구분"
+      - qry_tp: "조회구분"
+      - dmst_stex_tp: "국내거래소구분"
+    optional_params:
+      - ord_dt: "주문일자"
+      - stk_cd: "종목코드"
+      - fr_ord_no: "시작주문번호"
+
+  kt00010:
+    name: "주문인출가능금액요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - stk_cd: "종목코드"
+      - trde_tp: "매매구분"
+      - uv: "단가"
+    optional_params:
+      - io_amt: "입출금액"
+      - trde_qty: "매매수량"
+      - exp_buy_unp: "예상매수단가"
+
+  kt00011:
+    name: "증거금율별주문가능수량조회요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - stk_cd: "종목코드"
+    optional_params:
+      - uv: "단가"
+
+  kt00012:
+    name: "신용보증금율별주문가능수량조회요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - stk_cd: "종목코드"
+    optional_params:
+      - uv: "단가"
+
+  kt00013:
+    name: "증거금세부내역조회요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params: []
+
+  kt00015:
+    name: "위탁종합거래내역요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - strt_dt: "시작일자"
+      - end_dt: "종료일자"
+      - tp: "구분"
+      - gds_tp: "상품구분"
+      - dmst_stex_tp: "국내거래소구분"
+    optional_params:
+      - stk_cd: "종목코드"
+      - crnc_cd: "통화코드"
+      - frgn_stex_code: "해외거래소코드"
+
+  kt00016:
+    name: "일별계좌수익률상세현황요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - fr_dt: "시작일자"
+      - to_dt: "종료일자"
+
+  kt00017:
+    name: "계좌별당일현황요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params: []
+
+  kt00018:
+    name: "계좌평가잔고내역요청"
+    endpoint: "/api/dostk/acnt"
+    method: "POST"
+    category: "acnt"
+    required_params:
+      - qry_tp: "조회구분"
+      - dmst_stex_tp: "국내거래소구분"
+
+  # ===== 11. ELW API (10개) =====
+  ka10048:
+    name: "ELW일별민감도지표요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka10050:
+    name: "ELW민감도지표요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka30001:
+    name: "ELW가격급등락요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - flu_tp: "등락구분"
+      - tm_tp: "시간구분"
+      - tm: "시간"
+      - trde_qty_tp: "거래량구분"
+      - isscomp_cd: "발행회사코드"
+      - bsis_aset_cd: "기초자산코드"
+      - rght_tp: "권리구분"
+      - lpcd: "LP코드"
+      - trde_end_elwskip: "거래종료ELW제외"
+
+  ka30002:
+    name: "거래원별ELW순매매상위요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - isscomp_cd: "발행회사코드"
+      - trde_qty_tp: "거래량구분"
+      - trde_tp: "매매구분"
+      - dt: "일자"
+      - trde_end_elwskip: "거래종료ELW제외"
+
+  ka30003:
+    name: "ELWLP보유일별추이요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - bsis_aset_cd: "기초자산코드"
+      - base_dt: "기준일자"
+
+  ka30004:
+    name: "ELW괴리율요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - isscomp_cd: "발행회사코드"
+      - bsis_aset_cd: "기초자산코드"
+      - rght_tp: "권리구분"
+      - lpcd: "LP코드"
+      - trde_end_elwskip: "거래종료ELW제외"
+
+  ka30005:
+    name: "ELW조건검색요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - isscomp_cd: "발행회사코드"
+      - bsis_aset_cd: "기초자산코드"
+      - rght_tp: "권리구분"
+      - lpcd: "LP코드"
+      - sort_tp: "정렬구분"
+
+  ka30009:
+    name: "ELW등락율순위요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - sort_tp: "정렬구분"
+      - rght_tp: "권리구분"
+      - trde_end_skip: "거래종료제외"
+
+  ka30010:
+    name: "ELW잔량순위요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - sort_tp: "정렬구분"
+      - rght_tp: "권리구분"
+      - trde_end_skip: "거래종료제외"
+
+  ka30011:
+    name: "ELW근접율요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka30012:
+    name: "ELW종목상세정보요청"
+    endpoint: "/api/dostk/elw"
+    method: "POST"
+    category: "elw"
+    required_params:
+      - stk_cd: "종목코드"
+
+  # ===== 12. ETF API (9개) =====
+  ka40001:
+    name: "ETF수익율요청"
+    endpoint: "/api/dostk/etf"
+    method: "POST"
+    category: "etf"
+    required_params:
+      - stk_cd: "종목코드"
+      - etfobjt_idex_cd: "ETF대상지수코드"
+      - dt: "일자"
+
+  ka40002:
+    name: "ETF종목정보요청"
+    endpoint: "/api/dostk/etf"
+    method: "POST"
+    category: "etf"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka40003:
+    name: "ETF일별추이요청"
+    endpoint: "/api/dostk/etf"
+    method: "POST"
+    category: "etf"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka40004:
+    name: "ETF전체시세요청"
+    endpoint: "/api/dostk/etf"
+    method: "POST"
+    category: "etf"
+    required_params:
+      - txon_type: "과세구분"
+      - navpre: "NAV괴리율"
+      - mngmcomp: "운용사"
+      - txon_yn: "과세여부"
+      - trace_idex: "추적지수"
+      - stex_tp: "거래소구분"
+
+  ka40006:
+    name: "ETF시간대별추이요청"
+    endpoint: "/api/dostk/etf"
+    method: "POST"
+    category: "etf"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka40007:
+    name: "ETF시간대별체결요청"
+    endpoint: "/api/dostk/etf"
+    method: "POST"
+    category: "etf"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka40008:
+    name: "ETF일자별체결요청"
+    endpoint: "/api/dostk/etf"
+    method: "POST"
+    category: "etf"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka40009:
+    name: "ETF시간대별체결요청2"
+    endpoint: "/api/dostk/etf"
+    method: "POST"
+    category: "etf"
+    required_params:
+      - stk_cd: "종목코드"
+
+  ka40010:
+    name: "ETF시간대별추이요청2"
+    endpoint: "/api/dostk/etf"
+    method: "POST"
+    category: "etf"
+    required_params:
+      - stk_cd: "종목코드"
+
+  # ===== 13. 테마 API (2개) =====
+  ka90001:
+    name: "테마그룹별요청"
+    endpoint: "/api/dostk/thme"
+    method: "POST"
+    category: "thme"
+    required_params:
+      - qry_tp: "조회구분"
+      - date_tp: "일자구분"
+      - flu_pl_amt_tp: "등락금액구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - stk_cd: "종목코드"
+      - thema_nm: "테마명"
+
+  ka90002:
+    name: "테마구성종목요청"
+    endpoint: "/api/dostk/thme"
+    method: "POST"
+    category: "thme"
+    required_params:
+      - thema_grp_cd: "테마그룹코드"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - date_tp: "일자구분"
+
+  # ===== 14. 주문 API (4개) =====
+  kt10000:
+    name: "주식 매수주문"
+    description: "주식 매수 주문을 실행합니다"
+    endpoint: "/api/dostk/ordr"
+    method: "POST"
+    category: "ordr"
+    required_params:
+      - dmst_stex_tp: "국내거래소구분"
+      - stk_cd: "종목코드"
+      - ord_qty: "주문수량"
+      - trde_tp: "매매구분"
+    optional_params:
+      - ord_uv: "주문단가"
+      - cond_uv: "조건단가"
+    response_fields:
+      - odno: "주문번호"
+      - ord_tmd: "주문시각"
+
+  kt10001:
+    name: "주식 매도주문"
+    description: "주식 매도 주문을 실행합니다"
+    endpoint: "/api/dostk/ordr"
+    method: "POST"
+    category: "ordr"
+    required_params:
+      - dmst_stex_tp: "국내거래소구분"
+      - stk_cd: "종목코드"
+      - ord_qty: "주문수량"
+      - trde_tp: "매매구분"
+    optional_params:
+      - ord_uv: "주문단가"
+      - cond_uv: "조건단가"
+    response_fields:
+      - odno: "주문번호"
+      - ord_tmd: "주문시각"
+
+  kt10002:
+    name: "주식 정정주문"
+    description: "기존 주문을 정정합니다"
+    endpoint: "/api/dostk/ordr"
+    method: "POST"
+    category: "ordr"
+    required_params:
+      - dmst_stex_tp: "국내거래소구분"
+      - orig_ord_no: "원주문번호"
+      - stk_cd: "종목코드"
+      - mdfy_qty: "정정수량"
+      - mdfy_uv: "정정단가"
+    optional_params:
+      - mdfy_cond_uv: "정정조건단가"
+
+  kt10003:
+    name: "주식 취소주문"
+    description: "기존 주문을 취소합니다"
+    endpoint: "/api/dostk/ordr"
+    method: "POST"
+    category: "ordr"
+    required_params:
+      - dmst_stex_tp: "국내거래소구분"
+      - orig_ord_no: "원주문번호"
+      - stk_cd: "종목코드"
+      - cncl_qty: "취소수량"
+
+  # ===== 15. 신용주문 API (4개) =====
+  kt10006:
+    name: "신용 매수주문"
+    endpoint: "/api/dostk/crdordr"
+    method: "POST"
+    category: "crdordr"
+    required_params:
+      - dmst_stex_tp: "국내거래소구분"
+      - stk_cd: "종목코드"
+      - ord_qty: "주문수량"
+      - trde_tp: "매매구분"
+    optional_params:
+      - ord_uv: "주문단가"
+      - cond_uv: "조건단가"
+
+  kt10007:
+    name: "신용 매도주문"
+    endpoint: "/api/dostk/crdordr"
+    method: "POST"
+    category: "crdordr"
+    required_params:
+      - dmst_stex_tp: "국내거래소구분"
+      - stk_cd: "종목코드"
+      - ord_qty: "주문수량"
+      - trde_tp: "매매구분"
+      - crd_deal_tp: "신용거래구분"
+    optional_params:
+      - ord_uv: "주문단가"
+      - crd_loan_dt: "신용대출일자"
+      - cond_uv: "조건단가"
+
+  kt10008:
+    name: "신용 정정주문"
+    endpoint: "/api/dostk/crdordr"
+    method: "POST"
+    category: "crdordr"
+    required_params:
+      - dmst_stex_tp: "국내거래소구분"
+      - orig_ord_no: "원주문번호"
+      - stk_cd: "종목코드"
+      - mdfy_qty: "정정수량"
+      - mdfy_uv: "정정단가"
+    optional_params:
+      - mdfy_cond_uv: "정정조건단가"
+
+  kt10009:
+    name: "신용 취소주문"
+    endpoint: "/api/dostk/crdordr"
+    method: "POST"
+    category: "crdordr"
+    required_params:
+      - dmst_stex_tp: "국내거래소구분"
+      - orig_ord_no: "원주문번호"
+      - stk_cd: "종목코드"
+      - cncl_qty: "취소수량"
+
+  # ===== 16. WebSocket 실시간 API (19개) =====
+  ws_00:
+    name: "주문체결"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_04:
+    name: "잔고"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0A:
+    name: "주식기세"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0B:
+    name: "주식체결"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0C:
+    name: "주식우선호가"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0D:
+    name: "주식호가잔량"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0E:
+    name: "주식시간외호가"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0F:
+    name: "주식당일거래원"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0G:
+    name: "ETF NAV"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0H:
+    name: "주식예상체결"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0J:
+    name: "업종지수"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0U:
+    name: "업종등락"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0g:
+    name: "주식종목정보"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0m:
+    name: "ELW 이론가"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0s:
+    name: "장시작시간"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0u:
+    name: "ELW 지표"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_0w:
+    name: "종목프로그램매매"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ws_1h:
+    name: "VI발동/해제"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - grp_no: "그룹번호"
+      - refresh: "갱신여부"
+      - data: "종목데이터"
+
+  ka10171:
+    name: "조건검색 목록조회"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+
+  ka10172:
+    name: "조건검색 요청 일반"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - seq: "순번"
+      - search_type: "검색구분"
+      - stex_tp: "거래소구분"
+    optional_params:
+      - cont_yn: "연속여부"
+      - next_key: "다음키"
+
+  ka10173:
+    name: "조건검색 요청 실시간"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - seq: "순번"
+      - search_type: "검색구분"
+      - stex_tp: "거래소구분"
+
+  ka10174:
+    name: "조건검색 실시간 해제"
+    endpoint: "/api/dostk/websocket"
+    method: "WS"
+    category: "websocket"
+    required_params:
+      - trnm: "트랜잭션명"
+      - seq: "순번"
+
+# Configuration metadata
+metadata:
+  version: "1.0.0"
+  total_apis: 180
+  categories:
+    - auth: 2
+    - stkinfo: 28
+    - mrkcond: 21
+    - frgnistt: 3
+    - sect: 6
+    - shsa: 1
+    - rkinfo: 23
+    - chart: 10
+    - slb: 4
+    - acnt: 18
+    - elw: 10
+    - etf: 9
+    - thme: 2
+    - ordr: 4
+    - crdordr: 4
+    - websocket: 19
+  base_urls:
+    paper: "https://openapi.kiwoom.com"
+    production: "https://openapi.kiwoom.com"
+  created_at: "2025-08-15"
+  source: "docs/kiwoom_rest_api_180_docs.md"

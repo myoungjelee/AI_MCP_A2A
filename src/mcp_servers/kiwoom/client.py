@@ -8,6 +8,7 @@ Kiwoom API 연동 MCP 클라이언트 (개발 기술 중심)
 import asyncio
 import hashlib
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -70,14 +71,22 @@ class KiwoomClient:
 
         # API 설정
         self.base_url = "https://openapi.kiwoom.com"
-        self.app_key = None
-        self.app_secret = None
-        self.account_no = None
+
+        # 환경변수에서 API 키 로드
+        self.app_key = os.getenv("KIWOOM_APP_KEY")
+        self.app_secret = os.getenv("KIWOOM_APP_SECRET")
+        self.account_no = os.getenv("KIWOOM_ACCOUNT_NO")
 
         # HTTP 클라이언트
         self._client = None
 
         self.logger.info(f"키움 클라이언트 '{name}' 초기화 완료")
+        self.logger.info(
+            f"Kiwoom App Key: {'설정됨' if self.app_key else '설정되지 않음'}"
+        )
+        self.logger.info(
+            f"Kiwoom App Secret: {'설정됨' if self.app_secret else '설정되지 않음'}"
+        )
 
     def _setup_logging(self):
         """로깅 설정"""
@@ -87,13 +96,20 @@ class KiwoomClient:
         )
 
     async def connect_to_kiwoom(
-        self, app_key: str, app_secret: str, account_no: str
+        self, app_key: str = None, app_secret: str = None, account_no: str = None
     ) -> bool:
         """키움 API에 연결"""
         try:
-            self.app_key = app_key
-            self.app_secret = app_secret
-            self.account_no = account_no
+            # 파라미터가 제공되면 사용, 아니면 환경변수 사용
+            self.app_key = app_key or self.app_key
+            self.app_secret = app_secret or self.app_secret
+            self.account_no = account_no or self.account_no
+
+            if not self.app_key or not self.app_secret:
+                self.logger.warning(
+                    "키움 API 키가 설정되지 않았습니다. 더미 데이터로 동작합니다."
+                )
+                return False
 
             # HTTP 클라이언트 생성
             self._client = httpx.AsyncClient(
@@ -371,6 +387,147 @@ class KiwoomClient:
         except Exception as e:
             raise KiwoomError(f"시장 상태 API 호출 실패: {e}") from e
 
+    async def search_stock_by_name(self, company_name: str) -> Dict[str, Any]:
+        """종목명으로 종목코드 검색"""
+        cache_key = self._get_cache_key("search_stock", {"company_name": company_name})
+
+        if self._is_cache_valid(cache_key):
+            self.logger.info(f"캐시 히트: 종목 검색 - {company_name}")
+            return self._cache[cache_key]
+
+        try:
+            result = await self._retry_with_backoff(
+                self._search_stock_by_name, company_name
+            )
+
+            self._cache[cache_key] = result
+            self._cache_timestamps[cache_key] = datetime.now()
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"종목명 검색 실패: {e}")
+            raise KiwoomError(f"종목명 검색 실패: {e}") from e
+
+    async def _search_stock_by_name(self, company_name: str) -> Dict[str, Any]:
+        """실제 종목명 검색 API 호출"""
+        try:
+            # 실제 구현 시 키움 API ka10099 (종목정보 리스트) 사용
+            # 현재는 기본 매핑 데이터 사용
+            # 확장된 종목 매핑 (kiwoom_mcp 방식 참고)
+            stock_mapping = {
+                # 삼성 그룹
+                "삼성전자": {"stock_code": "005930", "company_name": "삼성전자"},
+                "삼성": {"stock_code": "005930", "company_name": "삼성전자"},
+                "samsung": {"stock_code": "005930", "company_name": "삼성전자"},
+                "삼성SDI": {"stock_code": "006400", "company_name": "삼성SDI"},
+                "삼성바이오로직스": {
+                    "stock_code": "207940",
+                    "company_name": "삼성바이오로직스",
+                },
+                # IT 플랫폼
+                "네이버": {"stock_code": "035420", "company_name": "NAVER"},
+                "NAVER": {"stock_code": "035420", "company_name": "NAVER"},
+                "naver": {"stock_code": "035420", "company_name": "NAVER"},
+                "카카오": {"stock_code": "035720", "company_name": "카카오"},
+                "KAKAO": {"stock_code": "035720", "company_name": "카카오"},
+                "kakao": {"stock_code": "035720", "company_name": "카카오"},
+                # 반도체
+                "SK하이닉스": {"stock_code": "000660", "company_name": "SK하이닉스"},
+                "sk하이닉스": {"stock_code": "000660", "company_name": "SK하이닉스"},
+                "sk hynix": {"stock_code": "000660", "company_name": "SK하이닉스"},
+                "하이닉스": {"stock_code": "000660", "company_name": "SK하이닉스"},
+                # 화학/소재
+                "LG화학": {"stock_code": "051910", "company_name": "LG화학"},
+                "lg화학": {"stock_code": "051910", "company_name": "LG화학"},
+                # 자동차
+                "현대자동차": {"stock_code": "005380", "company_name": "현대자동차"},
+                "현대차": {"stock_code": "005380", "company_name": "현대자동차"},
+                "hyundai": {"stock_code": "005380", "company_name": "현대자동차"},
+                "기아": {"stock_code": "000270", "company_name": "기아"},
+                "kia": {"stock_code": "000270", "company_name": "기아"},
+                "현대모비스": {"stock_code": "012330", "company_name": "현대모비스"},
+                # 철강/화학
+                "포스코": {"stock_code": "005490", "company_name": "포스코홀딩스"},
+                "포스코홀딩스": {
+                    "stock_code": "005490",
+                    "company_name": "포스코홀딩스",
+                },
+                "posco": {"stock_code": "005490", "company_name": "포스코홀딩스"},
+                # 바이오/제약
+                "셀트리온": {"stock_code": "068270", "company_name": "셀트리온"},
+                "celltrion": {"stock_code": "068270", "company_name": "셀트리온"},
+                # 금융
+                "KB금융": {"stock_code": "105560", "company_name": "KB금융"},
+                "kb금융": {"stock_code": "105560", "company_name": "KB금융"},
+                "kb": {"stock_code": "105560", "company_name": "KB금융"},
+                "신한지주": {"stock_code": "055550", "company_name": "신한지주"},
+                "신한": {"stock_code": "055550", "company_name": "신한지주"},
+                "우리금융지주": {
+                    "stock_code": "316140",
+                    "company_name": "우리금융지주",
+                },
+                "우리금융": {"stock_code": "316140", "company_name": "우리금융지주"},
+                "하나금융지주": {
+                    "stock_code": "086790",
+                    "company_name": "하나금융지주",
+                },
+                "하나금융": {"stock_code": "086790", "company_name": "하나금융지주"},
+                # 전자/가전
+                "LG전자": {"stock_code": "066570", "company_name": "LG전자"},
+                "lg전자": {"stock_code": "066570", "company_name": "LG전자"},
+                # 통신
+                "SK텔레콤": {"stock_code": "017670", "company_name": "SK텔레콤"},
+                "skt": {"stock_code": "017670", "company_name": "SK텔레콤"},
+                "KT": {"stock_code": "030200", "company_name": "KT"},
+                "kt": {"stock_code": "030200", "company_name": "KT"},
+                "LG유플러스": {"stock_code": "032640", "company_name": "LG유플러스"},
+                "lgu+": {"stock_code": "032640", "company_name": "LG유플러스"},
+                # 공기업/유틸리티
+                "한국전력": {"stock_code": "015760", "company_name": "한국전력"},
+                "한전": {"stock_code": "015760", "company_name": "한국전력"},
+                "kepco": {"stock_code": "015760", "company_name": "한국전력"},
+                # 해외 주요 종목 (참고용)
+                "테슬라": {"stock_code": "TSLA", "company_name": "테슬라"},
+                "tesla": {"stock_code": "TSLA", "company_name": "테슬라"},
+                "애플": {"stock_code": "AAPL", "company_name": "애플"},
+                "apple": {"stock_code": "AAPL", "company_name": "애플"},
+                "구글": {"stock_code": "GOOGL", "company_name": "구글"},
+                "google": {"stock_code": "GOOGL", "company_name": "구글"},
+                "마이크로소프트": {
+                    "stock_code": "MSFT",
+                    "company_name": "마이크로소프트",
+                },
+                "microsoft": {"stock_code": "MSFT", "company_name": "마이크로소프트"},
+            }
+
+            # 대소문자 구분 없이 검색
+            for key, value in stock_mapping.items():
+                if (
+                    company_name.lower() in key.lower()
+                    or key.lower() in company_name.lower()
+                ):
+                    return {
+                        "success": True,
+                        "stock_code": value["stock_code"],
+                        "company_name": value["company_name"],
+                        "source": "mapping",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+
+            # 찾지 못한 경우 기본값 (삼성전자)
+            return {
+                "success": False,
+                "stock_code": "005930",  # 기본값: 삼성전자
+                "company_name": "삼성전자",
+                "source": "default",
+                "message": f"'{company_name}' 종목을 찾을 수 없어 기본값(삼성전자)을 반환합니다.",
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        except Exception as e:
+            raise KiwoomError(f"종목 검색 API 호출 실패: {e}") from e
+
     async def list_tools(self) -> List[Dict[str, Any]]:
         """사용 가능한 도구 목록"""
         return [
@@ -394,6 +551,11 @@ class KiwoomClient:
                 "description": "시장 상태 조회",
                 "parameters": {},
             },
+            {
+                "name": "search_stock_by_name",
+                "description": "종목명으로 종목코드 검색",
+                "parameters": {"company_name": "string"},
+            },
         ]
 
     async def call_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
@@ -416,6 +578,14 @@ class KiwoomClient:
 
             elif tool_name == "get_market_status":
                 return await self.get_market_status()
+
+            elif tool_name == "search_stock_by_name":
+                company_name = kwargs.get("company_name")
+                if not company_name:
+                    raise KiwoomError(
+                        "company_name 파라미터가 필요합니다", "MISSING_PARAMETER"
+                    )
+                return await self.search_stock_by_name(company_name)
 
             else:
                 raise KiwoomError(f"알 수 없는 도구: {tool_name}")

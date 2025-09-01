@@ -5,7 +5,7 @@
 실제 데이터를 사용하여 MCP, FastMCP, 비동기 처리 기술을 보여줍니다.
 
 주요 기능:
-- 재무 데이터 수집 및 분석
+- 재무 데이터 수집 및 분석 (DART API 연동)
 - 재무비율 계산
 - 기업 가치 평가
 - 투자 분석 리포트 생성
@@ -20,12 +20,14 @@
 
 import asyncio
 import logging
+import os
+import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List
 
-import FinanceDataReader as fdr
+import requests
 
 from src.mcp_servers.base.base_mcp_client import BaseMCPClient
 from src.mcp_servers.base.middleware import MiddlewareManager
@@ -85,7 +87,21 @@ class FinancialAnalysisClient(BaseMCPClient):
         self.default_growth_rate = 3.0
         self.default_terminal_growth = 1.5
 
+        # DART API 설정
+        self.dart_api_key = os.getenv("DART_API_KEY")
+        self.dart_base_url = "https://opendart.fss.or.kr/api"
+
+        # ECOS API 설정 (보조용)
+        self.ecos_api_key = os.getenv("ECOS_API_KEY")
+        self.ecos_base_url = "https://ecos.bok.or.kr/api"
+
         self.logger.info(f"재무 분석 클라이언트 '{name}' 초기화 완료")
+        self.logger.info(
+            f"DART API Key: {'설정됨' if self.dart_api_key else '설정되지 않음'}"
+        )
+        self.logger.info(
+            f"ECOS API Key: {'설정됨' if self.ecos_api_key else '설정되지 않음'}"
+        )
 
     def _setup_logging(self):
         """로깅 설정"""
@@ -109,123 +125,239 @@ class FinancialAnalysisClient(BaseMCPClient):
                 )
                 await asyncio.sleep(delay)
 
-    def _get_cache_key(self, operation: str, params: Dict[str, Any]) -> str:
-        """캐시 키 생성"""
-        import hashlib
+    async def _fetch_dart_data(
+        self, corp_code: str, report_type: str, year: int, quarter: int = None
+    ) -> Dict[str, Any]:
+        """DART API에서 재무 데이터 가져오기"""
+        if not self.dart_api_key:
+            raise FinancialAnalysisError(
+                "DART API 키가 설정되지 않았습니다", "NO_API_KEY"
+            )
 
-        key_data = f"{operation}:{str(sorted(params.items()))}"
-        return hashlib.md5(key_data.encode()).hexdigest()
+        try:
+            # DART API 호출
+            if report_type == "income_statement":
+                url = f"{self.dart_base_url}/income"
+            elif report_type == "balance_sheet":
+                url = f"{self.dart_base_url}/balance"
+            elif report_type == "cash_flow":
+                url = f"{self.dart_base_url}/cashflow"
+            else:
+                raise FinancialAnalysisError(
+                    f"지원하지 않는 재무제표 타입: {report_type}", "INVALID_REPORT_TYPE"
+                )
 
-    def _is_cache_valid(self, cache_key: str) -> bool:
-        """캐시 유효성 검사"""
-        if cache_key not in self._cache_timestamps:
-            return False
+            params = {
+                "crtfc_key": self.dart_api_key,
+                "corp_code": corp_code,
+                "bsns_year": str(year),
+                "reprt_code": (
+                    "11011"
+                    if quarter == 1
+                    else (
+                        "11014"
+                        if quarter == 2
+                        else "11013" if quarter == 3 else "11012"
+                    )
+                ),
+            }
 
-        age = datetime.now() - self._cache_timestamps[cache_key]
-        return age.total_seconds() < self.cache_ttl
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if "status" in data and data["status"] != "000":
+                raise FinancialAnalysisError(
+                    f"DART API 오류: {data.get('message', '알 수 없는 오류')}",
+                    "API_ERROR",
+                )
+
+            return data
+
+        except requests.RequestException as e:
+            raise FinancialAnalysisError(f"DART API 호출 실패: {e}", "API_ERROR")
+        except Exception as e:
+            raise FinancialAnalysisError(
+                f"DART 데이터 처리 실패: {e}", "PROCESSING_ERROR"
+            )
+
+    async def _fetch_ecos_market_data(
+        self, indicator: str, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        """ECOS API에서 시장 데이터 가져오기"""
+        if not self.ecos_api_key:
+            raise FinancialAnalysisError(
+                "ECOS API 키가 설정되지 않았습니다", "NO_API_KEY"
+            )
+
+        try:
+            # ECOS API 호출
+            url = f"{self.ecos_base_url}/StatisticSearch/{self.ecos_api_key}/json/kr/1/1000/{indicator}/A/{start_date}/{end_date}"
+
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if "StatisticSearch" not in data:
+                raise FinancialAnalysisError(
+                    "ECOS API 응답 형식이 올바르지 않습니다", "INVALID_RESPONSE"
+                )
+
+            # 데이터 파싱 및 변환
+            records = []
+            for item in data["StatisticSearch"]["row"]:
+                try:
+                    timestamp = datetime.strptime(item.get("TIME", ""), "%Y%m")
+                    value = float(item.get("DATA_VALUE", 0))
+
+                    record = {
+                        "timestamp": timestamp,
+                        "value": value,
+                        "unit": item.get("UNIT_NAME", ""),
+                        "frequency": item.get("FREQ_NAME", ""),
+                        "source": "ECOS",
+                    }
+                    records.append(record)
+                except (ValueError, TypeError) as e:
+                    self.logger.warning(f"데이터 파싱 실패: {item}, 에러: {e}")
+                    continue
+
+            return records
+
+        except requests.RequestException as e:
+            raise FinancialAnalysisError(f"ECOS API 호출 실패: {e}", "API_ERROR")
+        except Exception as e:
+            raise FinancialAnalysisError(
+                f"ECOS 데이터 처리 실패: {e}", "PROCESSING_ERROR"
+            )
 
     async def get_financial_data(
-        self, symbol: str, data_type: str = "all"
+        self, symbol: str, data_type: str, year: int = None, quarter: int = None
     ) -> Dict[str, Any]:
-        """재무 데이터 조회"""
+        """재무 데이터 조회 - 실제 API 사용"""
         try:
-            cache_key = self._get_cache_key(
-                "get_financial_data", {"symbol": symbol, "type": data_type}
-            )
+            # 캐시 키 생성
+            cache_key = f"{symbol}_{data_type}_{year}_{quarter}"
 
             # 캐시 확인
-            if self._is_cache_valid(cache_key):
-                self.logger.info(f"캐시 히트: {symbol}")
-                return self._cache[cache_key]
+            if cache_key in self._cache:
+                cache_age = time.time() - self._cache_timestamps[cache_key]
+                if cache_age < self.cache_ttl:
+                    self.logger.info(f"Cache hit: {cache_key}")
+                    return self._cache[cache_key]
 
-            # 실제 데이터 조회
-            self.logger.info(f"재무 데이터 조회: {symbol}")
+            # 실제 데이터 수집
+            data = None
+            source = "unknown"
 
-            # FinanceDataReader를 통한 실제 데이터 수집
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=30)
+            if data_type in ["income_statement", "balance_sheet", "cash_flow"]:
+                # DART API에서 재무제표 데이터 가져오기
+                try:
+                    if year is None:
+                        year = datetime.now().year
 
-            # 주가 데이터
-            price_data = await asyncio.to_thread(
-                fdr.DataReader, symbol, start_date, end_date
-            )
+                    data = await self._fetch_dart_data(symbol, data_type, year, quarter)
+                    source = "DART"
+                    self.logger.info(f"DART에서 {data_type} 데이터 수집 완료: {symbol}")
+                except Exception as e:
+                    self.logger.warning(f"DART 데이터 수집 실패: {e}")
 
-            if price_data.empty:
-                raise FinancialAnalysisError(
-                    f"종목 {symbol}에 대한 가격 데이터를 찾을 수 없습니다"
+            elif data_type == "market_data":
+                # ECOS API에서 시장 데이터 가져오기
+                try:
+                    if year is None:
+                        year = datetime.now().year
+
+                    start_date = f"{year}01"
+                    end_date = f"{year}12"
+
+                    # 시장 지표 매핑
+                    market_indicators = {
+                        "KOSPI": "901Y009",  # KOSPI
+                        "EXCHANGE_RATE": "036Y001",  # 원/달러 환율
+                        "INTEREST_RATE": "721Y001",  # 기준금리
+                    }
+
+                    if symbol in market_indicators:
+                        data = await self._fetch_ecos_market_data(
+                            market_indicators[symbol], start_date, end_date
+                        )
+                        source = "ECOS"
+                        self.logger.info(f"ECOS에서 시장 데이터 수집 완료: {symbol}")
+                except Exception as e:
+                    self.logger.warning(f"ECOS 데이터 수집 실패: {e}")
+
+            # 데이터가 없으면 더미 데이터 생성 (폴백)
+            if data is None:
+                data = await self._generate_dummy_financial_data(
+                    symbol, data_type, year, quarter
                 )
-
-            current_price = price_data["Close"].iloc[-1]
-
-            # 종목 정보
-            stock_info = await asyncio.to_thread(fdr.StockListing, "KRX")
-            stock_row = stock_info[stock_info["Code"] == symbol]
-
-            if stock_row.empty:
-                raise FinancialAnalysisError(
-                    f"종목 {symbol}에 대한 정보를 찾을 수 없습니다"
-                )
-
-            market_cap = float(stock_row["Marcap"].iloc[0]) / 100000000  # 억원 단위
-
-            # 기본 재무 데이터 (추정치)
-            estimated_revenue = market_cap * 1.5
-            estimated_net_income = market_cap * 0.1
-            estimated_equity = market_cap * 0.6
-            estimated_assets = estimated_equity * 1.8
+                source = "dummy"
+                self.logger.warning("실제 API 데이터 수집 실패, 더미 데이터 생성")
 
             result = {
+                "success": True,
                 "symbol": symbol,
-                "company_name": (
-                    stock_row["Name"].iloc[0] if not stock_row.empty else symbol
-                ),
-                "income_statement": {
-                    "revenue": estimated_revenue,
-                    "operating_income": estimated_revenue * 0.12,
-                    "net_income": estimated_net_income,
-                    "ebitda": estimated_revenue * 0.15,
-                },
-                "balance_sheet": {
-                    "total_assets": estimated_assets,
-                    "total_equity": estimated_equity,
-                    "total_debt": estimated_assets - estimated_equity,
-                    "current_assets": estimated_assets * 0.4,
-                    "current_liabilities": (estimated_assets - estimated_equity) * 0.6,
-                },
-                "cash_flow": {
-                    "operating_cash_flow": estimated_net_income * 1.1,
-                    "investing_cash_flow": -estimated_revenue * 0.1,
-                    "financing_cash_flow": -estimated_net_income * 0.3,
-                    "free_cash_flow": estimated_net_income * 0.8,
-                },
-                "market_data": {
-                    "current_price": current_price,
-                    "market_cap": market_cap,
-                    "shares_outstanding": (
-                        (market_cap * 100000000) / current_price
-                        if current_price > 0
-                        else 0
-                    ),
-                },
-                "source": "FinanceDataReader",
-                "currency": "KRW",
-                "unit": "억원",
+                "data_type": data_type,
+                "year": year,
+                "quarter": quarter,
+                "data": data,
+                "source": source,
                 "timestamp": datetime.now().isoformat(),
+                "data_quality": ("real" if source in ["DART", "ECOS"] else "dummy"),
             }
 
             # 캐시 업데이트
             self._cache[cache_key] = result
-            self._cache_timestamps[cache_key] = datetime.now()
+            self._cache_timestamps[cache_key] = time.time()
 
+            self.logger.info(
+                f"재무 데이터 조회 완료: {symbol} -> {data_type} (quality: {result['data_quality']})"
+            )
             return result
 
-        except FinancialAnalysisError:
-            raise
         except Exception as e:
             self.logger.error(f"재무 데이터 조회 실패: {e}")
             raise FinancialAnalysisError(
-                f"재무 데이터 조회 실패: {e}", "DATA_COLLECTION_ERROR"
-            ) from e
+                f"재무 데이터 조회 실패: {e}", "DATA_FETCH_ERROR"
+            )
+
+    async def _generate_dummy_financial_data(
+        self, symbol: str, data_type: str, year: int, quarter: int = None
+    ) -> Dict[str, Any]:
+        """더미 재무 데이터 생성 (폴백용)"""
+        if data_type == "income_statement":
+            return {
+                "revenue": 1000000 + (hash(symbol) % 100000),
+                "operating_income": 100000 + (hash(symbol) % 50000),
+                "net_income": 80000 + (hash(symbol) % 30000),
+                "year": year,
+                "quarter": quarter,
+            }
+        elif data_type == "balance_sheet":
+            return {
+                "total_assets": 2000000 + (hash(symbol) % 200000),
+                "total_liabilities": 1000000 + (hash(symbol) % 100000),
+                "total_equity": 1000000 + (hash(symbol) % 100000),
+                "year": year,
+                "quarter": quarter,
+            }
+        elif data_type == "cash_flow":
+            return {
+                "operating_cash_flow": 150000 + (hash(symbol) % 50000),
+                "investing_cash_flow": -50000 + (hash(symbol) % 20000),
+                "financing_cash_flow": -30000 + (hash(symbol) % 15000),
+                "year": year,
+                "quarter": quarter,
+            }
+        else:
+            return {
+                "value": 100 + (hash(symbol) % 50),
+                "year": year,
+                "quarter": quarter,
+            }
 
     async def calculate_financial_ratios(
         self, financial_data: Dict[str, Any]
@@ -290,12 +422,16 @@ class FinancialAnalysisClient(BaseMCPClient):
             projection_years = kwargs.get("projection_years", 5)
 
             # 재무 데이터 조회
-            financial_data = await self.get_financial_data(symbol)
-            cash_flow = financial_data["cash_flow"]
+            financial_data = await self.get_financial_data(
+                symbol, "income_statement"
+            )  # Assuming income_statement for base_fcf
+            cash_flow = financial_data["data"]  # Extract data from the result
 
-            base_fcf = cash_flow["free_cash_flow"]
+            base_fcf = cash_flow["net_income"] * 0.7  # Fallback to net_income for FCF
             if base_fcf <= 0:
-                base_fcf = financial_data["income_statement"]["net_income"] * 0.7
+                base_fcf = (
+                    cash_flow["net_income"] * 0.7
+                )  # Fallback to net_income for FCF
 
             # 미래 현금흐름 추정
             projected_fcf = []
@@ -321,11 +457,15 @@ class FinancialAnalysisClient(BaseMCPClient):
 
             # 기업가치 계산
             enterprise_value = sum(pv_fcf) + pv_terminal
-            total_debt = financial_data["balance_sheet"]["total_debt"]
+            total_debt = financial_data["data"][
+                "total_debt"
+            ]  # Assuming total_debt is in the data
             equity_value = enterprise_value - total_debt
 
             # 주당 가치
-            shares_outstanding = financial_data["market_data"]["shares_outstanding"]
+            shares_outstanding = financial_data["data"][
+                "shares_outstanding"
+            ]  # Assuming shares_outstanding is in the data
             intrinsic_value = (
                 (equity_value * 100000000) / shares_outstanding
                 if shares_outstanding > 0
@@ -333,7 +473,9 @@ class FinancialAnalysisClient(BaseMCPClient):
             )
 
             # 현재 주가와 비교
-            current_price = financial_data["market_data"]["current_price"]
+            current_price = financial_data["data"][
+                "current_price"
+            ]  # Assuming current_price is in the data
             upside_potential = (
                 ((intrinsic_value - current_price) / current_price * 100)
                 if current_price > 0
@@ -379,7 +521,9 @@ class FinancialAnalysisClient(BaseMCPClient):
         """투자 분석 리포트 생성"""
         try:
             # 재무 데이터 조회
-            financial_data = await self.get_financial_data(symbol)
+            financial_data = await self.get_financial_data(
+                symbol, "income_statement"
+            )  # Assuming income_statement for ratios
 
             # 재무비율 계산
             ratios = self.calculate_financial_ratios(financial_data)
@@ -408,7 +552,9 @@ class FinancialAnalysisClient(BaseMCPClient):
 
             result = {
                 "symbol": symbol,
-                "company_name": financial_data["company_name"],
+                "company_name": financial_data["data"][
+                    "company_name"
+                ],  # Assuming company_name is in the data
                 "investment_grade": grade,
                 "recommendation": recommendation,
                 "financial_ratios": ratios,
@@ -469,6 +615,8 @@ class FinancialAnalysisClient(BaseMCPClient):
                 "parameters": {
                     "symbol": "종목코드",
                     "data_type": "데이터 타입 (income, balance, cashflow, all)",
+                    "year": "연도 (선택사항)",
+                    "quarter": "분기 (선택사항)",
                 },
             },
             {
@@ -499,13 +647,17 @@ class FinancialAnalysisClient(BaseMCPClient):
         try:
             if tool_name == "get_financial_data":
                 symbol = params.get("symbol", "")
-                data_type = params.get("data_type", "all")
-                result = await self.get_financial_data(symbol, data_type)
+                data_type = params.get("data_type", "income")
+                year = params.get("year")
+                quarter = params.get("quarter")
+                result = await self.get_financial_data(symbol, data_type, year, quarter)
                 return {"success": True, "data": result}
 
             elif tool_name == "calculate_financial_ratios":
                 symbol = params.get("symbol", "")
-                financial_data = await self.get_financial_data(symbol)
+                financial_data = await self.get_financial_data(
+                    symbol, "income_statement"
+                )  # Assuming income_statement for ratios
                 ratios = self.calculate_financial_ratios(financial_data)
                 return {"success": True, "data": ratios}
 

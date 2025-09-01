@@ -10,19 +10,23 @@ from typing import Any, Dict
 
 from ..base.base_mcp_server import BaseMCPServer
 from ..base.config import MCPServerConfig
-from .client import KiwoomClient, KiwoomError
+from .client import KiwoomClient
+
+logger = logging.getLogger(__name__)
 
 
 class KiwoomMCPServer(BaseMCPServer):
     """키움 API 연동 MCP 서버 (BaseMCPServer 상속)"""
 
-    def __init__(self, port: int = 8044, host: str = "0.0.0.0", debug: bool = False, **kwargs):
+    def __init__(
+        self, port: int = 8030, host: str = "0.0.0.0", debug: bool = False, **kwargs
+    ):
         # 기본 설정
         config = MCPServerConfig.from_env(name="kiwoom")
         config.port = port
         config.host = host
         config.debug = debug
-        
+
         # 미들웨어 설정
         middleware_config = {
             "logging": {
@@ -43,7 +47,7 @@ class KiwoomMCPServer(BaseMCPServer):
             config=config,
             enable_middlewares=True,
             middleware_config=middleware_config,
-            **kwargs
+            **kwargs,
         )
 
     def _initialize_clients(self) -> None:
@@ -63,18 +67,18 @@ class KiwoomMCPServer(BaseMCPServer):
             # 미들웨어 적용
             if self.kiwoom_client:
                 # 클라이언트 메서드에 미들웨어 적용
-                self.kiwoom_client.get_stock_price = self.middleware.apply_all("주식 가격 조회")(
-                    self.kiwoom_client.get_stock_price
-                )
-                self.kiwoom_client.get_account_info = self.middleware.apply_all("계좌 정보 조회")(
-                    self.kiwoom_client.get_account_info
-                )
-                self.kiwoom_client.get_stock_info = self.middleware.apply_all("주식 정보 조회")(
-                    self.kiwoom_client.get_stock_info
-                )
-                self.kiwoom_client.get_market_status = self.middleware.apply_all("시장 상태 조회")(
-                    self.kiwoom_client.get_market_status
-                )
+                self.kiwoom_client.get_stock_price = self.middleware.apply_all(
+                    "주식 가격 조회"
+                )(self.kiwoom_client.get_stock_price)
+                self.kiwoom_client.get_account_info = self.middleware.apply_all(
+                    "계좌 정보 조회"
+                )(self.kiwoom_client.get_account_info)
+                self.kiwoom_client.get_stock_info = self.middleware.apply_all(
+                    "주식 정보 조회"
+                )(self.kiwoom_client.get_stock_info)
+                self.kiwoom_client.get_market_status = self.middleware.apply_all(
+                    "시장 상태 조회"
+                )(self.kiwoom_client.get_market_status)
 
             @self.mcp.tool()
             async def get_stock_price(stock_code: str) -> Dict[str, Any]:
@@ -172,6 +176,30 @@ class KiwoomMCPServer(BaseMCPServer):
                         "get_market_status",
                     )
 
+            @self.mcp.tool()
+            async def search_stock_by_name(company_name: str) -> Dict[str, Any]:
+                """종목명으로 종목코드 검색"""
+                try:
+                    if not self.kiwoom_client:
+                        return self.create_error_response(
+                            "search_stock_by_name",
+                            "Kiwoom client not initialized",
+                            f"search_stock_by_name: {company_name}",
+                        )
+
+                    result = await self.kiwoom_client.search_stock_by_name(company_name)
+                    return self.create_standard_response(
+                        success=True,
+                        query=f"search_stock_by_name: {company_name}",
+                        data=result,
+                    )
+                except Exception as e:
+                    return self.create_error_response(
+                        "search_stock_by_name",
+                        e,
+                        f"search_stock_by_name: {company_name}",
+                    )
+
             # 서버 상태 및 메트릭 도구 추가
             @self.mcp.tool()
             async def get_server_health() -> Dict[str, Any]:
@@ -193,19 +221,24 @@ class KiwoomMCPServer(BaseMCPServer):
 def main():
     """메인 함수"""
     import asyncio
-    
-    async def run_server():
-        server = KiwoomMCPServer(port=8044, debug=True)
-        await server.start_server()
-        
-        try:
-            # 서버 실행 중 대기
-            while True:
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            await server.stop_server()
-    
-    asyncio.run(run_server())
+
+    # 서버 인스턴스 생성
+    server = KiwoomMCPServer(port=8030, debug=True)
+
+    try:
+        # 서버 시작 준비
+        asyncio.run(server.start_server())
+
+        # FastMCP 서버 실행 (HTTP 모드)
+        server.run_server()
+
+    except KeyboardInterrupt:
+        logger.info("서버가 사용자에 의해 중단되었습니다.")
+    except Exception as e:
+        logger.error(f"서버 실행 중 오류 발생: {e}")
+    finally:
+        # 서버 정리
+        asyncio.run(server.stop_server())
 
 
 if __name__ == "__main__":

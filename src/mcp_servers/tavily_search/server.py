@@ -11,17 +11,21 @@ from ..base.base_mcp_server import BaseMCPServer
 from ..base.config import MCPServerConfig
 from .client import TavilySearchClient
 
+logger = logging.getLogger(__name__)
+
 
 class TavilySearchMCPServer(BaseMCPServer):
     """검색 시스템 MCP 서버 (BaseMCPServer 상속)"""
 
-    def __init__(self, port: int = 8043, host: str = "0.0.0.0", debug: bool = False, **kwargs):
+    def __init__(
+        self, port: int = 8053, host: str = "0.0.0.0", debug: bool = False, **kwargs
+    ):
         # 기본 설정
         config = MCPServerConfig.from_env(name="tavily_search")
         config.port = port
         config.host = host
         config.debug = debug
-        
+
         # 미들웨어 설정
         middleware_config = {
             "logging": {
@@ -42,7 +46,7 @@ class TavilySearchMCPServer(BaseMCPServer):
             config=config,
             enable_middlewares=True,
             middleware_config=middleware_config,
-            **kwargs
+            **kwargs,
         )
 
     def _initialize_clients(self) -> None:
@@ -68,9 +72,9 @@ class TavilySearchMCPServer(BaseMCPServer):
                 self.search_client.search_news = self.middleware.apply_all("뉴스 검색")(
                     self.search_client.search_news
                 )
-                self.search_client.search_finance = self.middleware.apply_all("금융 정보 검색")(
-                    self.search_client.search_finance
-                )
+                self.search_client.search_finance = self.middleware.apply_all(
+                    "금융 정보 검색"
+                )(self.search_client.search_finance)
 
             @self.mcp.tool()
             async def search_web(query: str, max_results: int = 10) -> Dict[str, Any]:
@@ -121,7 +125,9 @@ class TavilySearchMCPServer(BaseMCPServer):
                     )
 
             @self.mcp.tool()
-            async def search_finance(query: str, max_results: int = 10) -> Dict[str, Any]:
+            async def search_finance(
+                query: str, max_results: int = 10
+            ) -> Dict[str, Any]:
                 """금융 정보 검색 수행 (캐싱 + 재시도 로직)"""
                 try:
                     if not self.search_client:
@@ -165,19 +171,24 @@ class TavilySearchMCPServer(BaseMCPServer):
 def main():
     """메인 함수"""
     import asyncio
-    
-    async def run_server():
-        server = TavilySearchMCPServer(port=8043, debug=True)
-        await server.start_server()
-        
-        try:
-            # 서버 실행 중 대기
-            while True:
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            await server.stop_server()
-    
-    asyncio.run(run_server())
+
+    # 서버 인스턴스 생성
+    server = TavilySearchMCPServer(port=8053, debug=True)
+
+    try:
+        # 서버 시작 준비
+        asyncio.run(server.start_server())
+
+        # FastMCP 서버 실행 (HTTP 모드)
+        server.run_server()
+
+    except KeyboardInterrupt:
+        logger.info("서버가 사용자에 의해 중단되었습니다.")
+    except Exception as e:
+        logger.error(f"서버 실행 중 오류 발생: {e}")
+    finally:
+        # 서버 정리
+        asyncio.run(server.stop_server())
 
 
 if __name__ == "__main__":

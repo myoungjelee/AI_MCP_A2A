@@ -5,10 +5,13 @@
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List
+
+import requests
 
 from src.mcp_servers.base.base_mcp_client import BaseMCPClient
 from src.mcp_servers.base.middleware import MiddlewareManager
@@ -64,7 +67,14 @@ class TavilySearchClient(BaseMCPClient):
         self._cache = {}
         self._cache_timestamps = {}
 
+        # Tavily API 설정
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY")
+        self.tavily_base_url = "https://api.tavily.com/search"
+
         self.logger.info(f"검색 시스템 클라이언트 '{name}' 초기화 완료")
+        self.logger.info(
+            f"Tavily API Key: {'설정됨' if self.tavily_api_key else '설정되지 않음'}"
+        )
 
     def _setup_logging(self):
         """로깅 설정"""
@@ -120,25 +130,78 @@ class TavilySearchClient(BaseMCPClient):
                 }
 
             async def _fetch_search_results():
-                # 실제 검색 로직 (현재는 샘플 데이터)
+                # 실제 Tavily API 호출 시도
                 results = []
-                for i in range(max_results):
-                    result = SearchResult(
-                        title=f"{query} 관련 검색 결과 {i+1}",
-                        url=f"https://example{i+1}.com/article",
-                        content=f"{query}에 대한 상세한 정보를 제공하는 웹페이지입니다. {i+1}번째 결과입니다.",
-                        score=0.9 - (i * 0.1),
-                        published_date=datetime.now() - timedelta(days=i),
-                        source=f"웹사이트{i+1}",
-                    )
-                    results.append(result)
+                data_quality = "dummy"
+
+                if self.tavily_api_key:
+                    try:
+                        tavily_results = await self._fetch_tavily_data(
+                            query, max_results
+                        )
+                        for item in tavily_results:
+                            result = SearchResult(
+                                title=item["title"],
+                                url=item["url"],
+                                content=item["content"],
+                                score=item["score"],
+                                published_date=datetime.fromisoformat(
+                                    item["published_date"]
+                                ),
+                                source=item["source"],
+                            )
+                            results.append(result)
+                        data_quality = "real"
+                        self.logger.info(
+                            f"Tavily에서 {len(results)}개 검색 결과 수집 완료"
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Tavily API 호출 실패: {e}")
+
+                # 데이터가 없으면 더미 데이터 생성 (폴백)
+                if not results:
+                    self.logger.warning("실제 API 데이터 수집 실패, 더미 데이터 생성")
+                    for i in range(max_results):
+                        result = SearchResult(
+                            title=f"{query} 관련 검색 결과 {i+1}",
+                            url=f"https://example{i+1}.com/article",
+                            content=f"{query}에 대한 상세한 정보를 제공하는 웹페이지입니다. {i+1}번째 결과입니다.",
+                            score=0.9 - (i * 0.1),
+                            published_date=datetime.now() - timedelta(days=i),
+                            source=f"웹사이트{i+1}",
+                        )
+                        results.append(result)
 
                 if not results:
                     raise SearchError("검색 결과가 비어있습니다", "EMPTY_RESULTS")
 
-                return results
+                return results, data_quality
 
-            data = await self._retry_with_backoff(_fetch_search_results)
+            results, data_quality = await self._retry_with_backoff(
+                _fetch_search_results
+            )
+
+            # 결과 포맷팅
+            formatted_results = [
+                {
+                    "title": result.title,
+                    "url": result.url,
+                    "content": result.content,
+                    "score": result.score,
+                    "published_date": result.published_date.isoformat(),
+                    "source": result.source,
+                }
+                for result in results
+            ]
+
+            data = {
+                "success": True,
+                "query": query,
+                "total_results": len(results),
+                "results": formatted_results,
+                "data_quality": data_quality,
+                "search_timestamp": datetime.now().isoformat(),
+            }
 
             # 캐시 업데이트
             self._cache[cache_key] = data
@@ -362,3 +425,64 @@ class TavilySearchClient(BaseMCPClient):
                 "error": str(e),
                 "message": f"도구 '{tool_name}' 실행 실패",
             }
+
+    async def _fetch_tavily_data(
+        self, query: str, max_results: int
+    ) -> List[Dict[str, Any]]:
+        """실제 Tavily API에서 검색 데이터 가져오기"""
+        if not self.tavily_api_key:
+            raise SearchError("Tavily API 키가 설정되지 않았습니다", "NO_API_KEY")
+
+        try:
+            payload = {
+                "api_key": self.tavily_api_key,
+                "query": query,
+                "search_depth": "basic",
+                "include_answer": False,
+                "include_images": False,
+                "include_raw_content": False,
+                "max_results": max_results,
+                "include_domains": [],
+                "exclude_domains": [],
+            }
+
+            response = requests.post(
+                self.tavily_base_url,
+                json=payload,
+                timeout=30,
+                headers={"Content-Type": "application/json"},
+            )
+            response.raise_for_status()
+
+            data = response.json()
+
+            if "results" not in data:
+                raise SearchError(
+                    "Tavily API 응답 형식이 올바르지 않습니다", "INVALID_RESPONSE"
+                )
+
+            # 데이터 파싱 및 변환
+            results = []
+            for item in data["results"]:
+                try:
+                    result = {
+                        "title": item.get("title", ""),
+                        "url": item.get("url", ""),
+                        "content": item.get("content", "")[:500],  # 내용 길이 제한
+                        "score": item.get("score", 0.5),
+                        "published_date": datetime.now().isoformat(),  # Tavily는 발행일을 제공하지 않음
+                        "source": "Tavily",
+                    }
+                    results.append(result)
+                except Exception as e:
+                    self.logger.warning(f"Tavily 데이터 파싱 실패: {item}, 에러: {e}")
+                    continue
+
+            return results
+
+        except requests.RequestException as e:
+            raise SearchError(f"Tavily API 호출 실패: {e}", "API_ERROR") from e
+        except Exception as e:
+            raise SearchError(
+                f"Tavily 데이터 처리 실패: {e}", "PROCESSING_ERROR"
+            ) from e
