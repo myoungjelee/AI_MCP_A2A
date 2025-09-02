@@ -1,3 +1,4 @@
 {
+  "/api/validate/investment/json/route": "app/api/validate/investment/json/route.js",
   "/page": "app/page.js"
 }

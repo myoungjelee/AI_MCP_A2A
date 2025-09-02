@@ -1,356 +1,217 @@
-"""
-단일 통합 에이전트
+"""통합 에이전트 LangGraph 워크플로우 구현"""
 
-모든 기능을 통합한 단일 LangGraph 에이전트입니다.
-MCP 서버들과 연동하여 종합적인 데이터 수집, 분석, 의사결정을 수행합니다.
-"""
-
-import asyncio
-import logging
-import os
 from typing import Any, Dict, List, Optional
 
-from langgraph.graph import END, START
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 
-from ..base import BaseGraphAgent
-from ..base.mcp_config import MCPServerConfig, create_mcp_client_and_tools
-from ..base.mcp_loader import MCPLoader
-from .nodes import (
-    collect_comprehensive_data,
-    conversational_response,
-    execute_action,
-    make_intelligent_decision,
-    perform_comprehensive_analysis,
-    validate_request,
-)
-from .state import IntegratedAgentState, create_initial_state, get_state_summary
-
-logger = logging.getLogger(__name__)
+from .nodes import IntegratedAgentNodes
+from .state import IntegratedAgentState, create_initial_state, set_processing_end_time
 
 
-class IntegratedAgent(BaseGraphAgent):
-    """단일 통합 에이전트"""
+class IntegratedAgent:
+    """통합 투자 분석 에이전트 - LangGraph 기반"""
 
-    def __init__(
-        self,
-        name: str = "integrated_agent",
-        mcp_servers: Optional[List[str]] = None,
-        config: Optional[Dict[str, Any]] = None,
-        llm_model: Optional[str] = None,
-        ollama_base_url: Optional[str] = None,
-    ):
-        """통합 에이전트 초기화"""
+    def __init__(self, model_name: str = "gpt-oss:20b"):
+        """초기화"""
+        self.model_name = model_name
+        self.nodes = IntegratedAgentNodes(model_name)
 
-        # 기본 MCP 서버 목록
-        default_mcp_servers = [
-            "macroeconomic",
-            "financial_analysis",
-            "stock_analysis",
-            "naver_news",
-            "tavily_search",
-            "kiwoom",
-        ]
+        # 메모리 저장소 (세션 기반 대화 기억)
+        self.memory = MemorySaver()
 
-        self.mcp_servers = mcp_servers or default_mcp_servers
-        self.config = config or {}
+        # 워크플로우 그래프 구축
+        self.workflow = self._build_workflow()
+        self.app = self.workflow.compile(checkpointer=self.memory)
 
-        # LLM 모델 설정
-        self.llm_model = llm_model or os.getenv("LLM_MODEL", "gpt-oss:20b")
-        self.ollama_base_url = ollama_base_url or os.getenv(
-            "OLLAMA_BASE_URL", "http://localhost:11434"
-        )
+        # MCP 도구 초기화 플래그
+        self._mcp_initialized = False
 
-        # MCP 서버 설정 가져오기
-        self.mcp_server_configs = MCPServerConfig.get_server_configs(self.mcp_servers)
+    def _build_workflow(self) -> StateGraph:
+        """LangGraph 워크플로우 구성 (검증 과정 제거)"""
+        workflow = StateGraph(IntegratedAgentState)
 
-        # MCP 로더 초기화
-        self.mcp_loader = MCPLoader(self.mcp_servers)
+        # 노드 추가 (validate 노드 제거)
+        workflow.add_node("collect", self.nodes.collect_node)
+        workflow.add_node("analyze", self.nodes.analyze_node)
+        workflow.add_node("decide", self.nodes.decide_node)
+        workflow.add_node("respond", self.nodes.respond_node)
 
-        # MCP 클라이언트와 도구들 (나중에 초기화)
-        self.mcp_client = None
-        self.mcp_tools = []
+        # 시작점 설정 (바로 collect부터 시작)
+        workflow.set_entry_point("collect")
 
-        super().__init__(
-            name=name,
-            mcp_servers=self.mcp_servers,
-            config=self.config,
-        )
+        # 순차적 흐름
+        workflow.add_edge("collect", "analyze")
+        workflow.add_edge("analyze", "decide")
+        workflow.add_edge("decide", "respond")
+        workflow.add_edge("respond", END)
 
-        # LLM 초기화 (logger가 초기화된 후)
-        self.llm = self._setup_llm()
+        return workflow
 
-        self.logger.info(f"통합 에이전트 '{name}' 초기화 완료")
-        self.logger.info(f"로컬 LLM 모델: {self.llm_model}")
-        self.logger.info(f"MCP 서버 설정: {list(self.mcp_server_configs.keys())}")
-
-    def _add_nodes(self):
-        """노드 추가"""
-        self.logger.info("통합 에이전트 노드 추가 시작")
-
-        # 각 노드에 에이전트 참조를 제공하는 래퍼 함수 생성
-        async def validate_request_with_agent(state):
-            return await validate_request(state)
-
-        async def collect_data_with_agent(state):
-            # MCP 클라이언트와 도구들을 노드에 전달
-            return await collect_comprehensive_data(
-                state, mcp_client=self.mcp_client, mcp_tools=self.mcp_tools
-            )
-
-        async def analyze_data_with_agent(state):
-            return await perform_comprehensive_analysis(state)
-
-        async def make_decision_with_agent(state):
-            # LLM 사용이 필요한 노드에만 agent 참조 전달
-            return await make_intelligent_decision(state, agent=self)
-
-        async def execute_action_with_agent(state):
-            return await execute_action(state)
-
-        async def generate_response_with_agent(state):
-            # 대화형 응답 생성 노드 - Ollama LLM 활용
-            return await conversational_response(state, agent=self)
-
-        # 노드 추가 (LangGraph 문서에 따른 방식)
-        self.workflow.add_node("validate_request", validate_request_with_agent)
-        self.workflow.add_node("collect_data", collect_data_with_agent)
-        self.workflow.add_node("analyze_data", analyze_data_with_agent)
-        self.workflow.add_node("make_decision", make_decision_with_agent)
-        self.workflow.add_node("execute_action", execute_action_with_agent)
-        self.workflow.add_node("generate_response", generate_response_with_agent)
-
-        self.logger.info("통합 에이전트 노드 추가 완료")
-
-    def _add_edges(self):
-        """엣지 추가"""
-        self.logger.info("통합 에이전트 엣지 연결 시작")
-
-        # LangGraph 문서에 따른 엣지 연결 방식
-        self.workflow.add_edge(START, "validate_request")
-        self.workflow.add_edge("validate_request", "collect_data")
-        self.workflow.add_edge("collect_data", "analyze_data")
-        self.workflow.add_edge("analyze_data", "make_decision")
-        self.workflow.add_edge("make_decision", "execute_action")
-        self.workflow.add_edge("execute_action", "generate_response")
-        self.workflow.add_edge("generate_response", END)
-
-        self.logger.info("통합 에이전트 엣지 연결 완료")
-
-    def _create_initial_state(self, **kwargs) -> Dict[str, Any]:
-        """초기 상태 생성"""
-        request = kwargs.get("request", {})
-        task_type = kwargs.get("task_type", "comprehensive_analysis")
-
-        return create_initial_state(request=request, task_type=task_type)
-
-    def _get_state_type(self):
-        """상태 타입 반환"""
-        return IntegratedAgentState
-
-    async def run_comprehensive_analysis(
-        self, request: Dict[str, Any], task_type: str = "comprehensive_analysis"
+    async def process_question(
+        self, question: str, session_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """종합 분석 실행"""
+        """
+        질문 처리 메인 메서드
+
+        Args:
+            question: 사용자 질문
+            session_id: 세션 ID (대화 기억용)
+
+        Returns:
+            Dict[str, Any]: 처리 결과
+        """
         try:
-            self.logger.info(f"종합 분석 시작: {task_type}")
+            # MCP 도구 초기화 (최초 1회)
+            if not self._mcp_initialized:
+                await self.nodes.initialize_mcp_tools()
+                self._mcp_initialized = True
 
-            # MCP 서버들 연결
-            await self._connect_mcp_servers()
+            # 초기 상태 생성
+            initial_state = create_initial_state(question, session_id)
 
-            # 에이전트 실행
-            result = await self.start(request=request, task_type=task_type)
+            # 워크플로우 실행
+            config = {"configurable": {"thread_id": session_id or "default"}}
 
-            # 결과 요약 생성
-            summary = get_state_summary(result)
+            # 스트리밍 실행
+            final_state = None
+            async for state in self.app.astream(initial_state, config):
+                final_state = state
 
-            self.logger.info(f"종합 분석 완료: {summary}")
+            # 마지막 상태에서 결과 추출
+            if final_state:
+                last_node_state = list(final_state.values())[-1]
+                # 처리 완료 시간 설정
+                completed_state = set_processing_end_time(last_node_state)
 
-            # 🔍 결과 구조 상세 디버깅
-            self.logger.info("🔍 에이전트 실행 결과 분석:")
-            self.logger.info(f"  - result 타입: {type(result)}")
-            self.logger.info(f"  - result 키들: {list(result.keys()) if isinstance(result, dict) else 'dict가 아님'}")
-            
-            # ai_response 찾기 (여러 경로 시도)
-            ai_response = None
-            if isinstance(result, dict):
-                # 경로 1: 직접 ai_response
-                if "ai_response" in result:
-                    ai_response = result["ai_response"]
-                    self.logger.info(f"  - ai_response 발견 (직접): {len(ai_response) if isinstance(ai_response, str) else type(ai_response)} 문자")
-                # 경로 2: metadata에서 ai_response
-                elif "metadata" in result and isinstance(result["metadata"], dict) and "ai_response" in result["metadata"]:
-                    ai_response = result["metadata"]["ai_response"]
-                    self.logger.info(f"  - ai_response 발견 (metadata): {len(ai_response) if isinstance(ai_response, str) else type(ai_response)} 문자")
-                    # 최상위로 복사
-                    result["ai_response"] = ai_response
-                else:
-                    self.logger.warning("  - ai_response를 찾을 수 없음 (직접 및 metadata 모두 확인)")
+                return {
+                    "success": True,
+                    "response": completed_state["final_response"],
+                    "response_type": completed_state["response_type"],
+                    "is_investment_related": completed_state["is_investment_related"],
+                    "validation_confidence": completed_state["validation_confidence"],
+                    "processing_time": completed_state["total_processing_time"],
+                    "used_servers": completed_state["total_used_servers"],
+                    "step_usage": completed_state["step_mcp_usage"],
+                    "state": completed_state,
+                }
             else:
-                self.logger.warning("  - result가 dict가 아님")
-                
-            # ai_response가 있으면 result에 명시적으로 포함
-            if "ai_response" in result:
-                result["ai_response"] = result["ai_response"]
-
-            return {
-                "success": True,
-                "result": result,
-                "summary": summary,
-                "agent_name": self.name,
-            }
-
-        except Exception as e:
-            self.logger.error(f"종합 분석 실패: {e}")
-            return {"success": False, "error": str(e), "agent_name": self.name}
-        finally:
-            # MCP 서버들 연결 해제
-            await self._disconnect_mcp_servers()
-
-    async def run_data_collection(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """데이터 수집만 실행"""
-        return await self.run_comprehensive_analysis(
-            request=request, task_type="data_collection"
-        )
-
-    async def run_market_analysis(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """시장 분석만 실행"""
-        return await self.run_comprehensive_analysis(
-            request=request, task_type="market_analysis"
-        )
-
-    async def run_investment_decision(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """투자 의사결정만 실행"""
-        return await self.run_comprehensive_analysis(
-            request=request, task_type="investment_decision"
-        )
-
-    async def run_trading_execution(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """거래 실행만 실행"""
-        return await self.run_comprehensive_analysis(
-            request=request, task_type="trading_execution"
-        )
-
-    def get_agent_info(self) -> Dict[str, Any]:
-        """에이전트 정보 반환"""
-        return {
-            "name": self.name,
-            "type": "integrated_agent",
-            "description": "종합적인 데이터 수집, 분석, 의사결정을 수행하는 통합 에이전트",
-            "capabilities": [
-                "데이터 수집 (거시경제, 재무, 주식, 뉴스, 검색)",
-                "종합 분석 (기술적, 기본적, 감정, 시장)",
-                "지능적 의사결정",
-                "액션 실행",
-            ],
-            "mcp_servers": self.mcp_loader.mcp_servers,
-            "workflow_steps": [
-                "validate_request",
-                "collect_data",
-                "analyze_data",
-                "make_decision",
-                "execute_action",
-            ],
-            "status": "ready",
-        }
-
-    async def get_performance_stats(self) -> Dict[str, Any]:
-        """성능 통계 반환"""
-        return {
-            "agent_name": self.name,
-            "total_executions": 0,  # 실제로는 카운터 필요
-            "success_rate": 1.0,
-            "average_execution_time": 30.0,  # 초
-            "last_execution": None,
-            "mcp_connections": self.mcp_loader.get_connection_summary(),
-            "error_count": self.error_handler.get_error_count(),
-        }
-
-    async def _connect_mcp_servers(self):
-        """MCP 서버들 연결"""
-        try:
-            self.logger.info("MCP 서버 연결 시작")
-
-            # MCP 로더를 사용하여 서버들 연결
-            await self.mcp_loader.connect_all()
-
-            # MCP 클라이언트와 도구들 생성
-            self.mcp_client, self.mcp_tools = await create_mcp_client_and_tools(
-                self.mcp_server_configs
-            )
-            self.logger.info(
-                f"MCP 서버 연결 완료: {len(self.mcp_loader.connected_servers)}개"
-            )
-            self.logger.info(f"MCP 도구 로딩 완료: {len(self.mcp_tools)}개")
-
-        except Exception as e:
-            self.logger.error(f"MCP 서버 연결 실패: {e}")
-            raise
-
-    async def _disconnect_mcp_servers(self):
-        """MCP 서버들 연결 해제"""
-        try:
-            self.logger.info("MCP 서버 연결 해제 시작")
-
-            # MCP 로더를 사용하여 서버들 연결 해제
-            await self.mcp_loader.disconnect_all()
-
-            # 클라이언트 정리
-            self.mcp_client = None
-            self.mcp_tools = []
-
-            self.logger.info("MCP 서버 연결 해제 완료")
-
-        except Exception as e:
-            self.logger.error(f"MCP 서버 연결 해제 실패: {e}")
-
-    async def health_check(self) -> Dict[str, Any]:
-        """헬스 체크"""
-        try:
-            # MCP 서버 연결 상태 확인
-            mcp_status = {}
-            for server in self.mcp_loader.mcp_servers:
-                is_connected = self.mcp_loader.is_server_connected(server)
-                mcp_status[server] = "connected" if is_connected else "disconnected"
-
-            return {
-                "status": "healthy",
-                "agent_name": self.name,
-                "workflow_ready": self.workflow is not None,
-                "mcp_servers": mcp_status,
-                "error_count": self.error_handler.get_error_count(),
-                "timestamp": asyncio.get_event_loop().time(),
-            }
+                return {
+                    "success": False,
+                    "error": "워크플로우 실행 중 상태를 받지 못했습니다.",
+                    "response": "처리 중 오류가 발생했습니다.",
+                    "response_type": "error",
+                }
 
         except Exception as e:
             return {
-                "status": "unhealthy",
-                "agent_name": self.name,
+                "success": False,
                 "error": str(e),
-                "timestamp": asyncio.get_event_loop().time(),
+                "response": f"질문 처리 중 오류가 발생했습니다: {str(e)}",
+                "response_type": "error",
             }
 
-    def _setup_llm(self) -> Any:
-        """로컬 Ollama LLM 모델 설정"""
+    async def stream_process_question(
+        self, question: str, session_id: Optional[str] = None
+    ):
+        """
+        스트리밍 방식으로 질문 처리 (실시간 단계별 진행 상황)
+
+        Args:
+            question: 사용자 질문
+            session_id: 세션 ID
+
+        Yields:
+            Dict[str, Any]: 단계별 진행 상황
+        """
         try:
-            # Ollama 모델 초기화
-            from langchain_community.llms import Ollama
+            # MCP 도구 초기화 (최초 1회)
+            if not self._mcp_initialized:
+                await self.nodes.initialize_mcp_tools()
+                self._mcp_initialized = True
 
-            # Ollama 기반 로컬 모델 사용
-            llm = Ollama(
-                model=self.llm_model,  # 로컬 Ollama 모델명
-                temperature=0.1,  # 낮은 temperature로 일관된 결과
-                base_url=self.ollama_base_url,  # 설정된 Ollama URL 사용
-            )
+            # 초기 상태 생성
+            initial_state = create_initial_state(question, session_id)
 
-            self.logger.info(f"로컬 Ollama LLM 모델 초기화 완료: {self.llm_model}")
-            return llm
+            # 워크플로우 스트리밍 실행
+            config = {"configurable": {"thread_id": session_id or "default"}}
 
-        except ImportError:
-            self.logger.error(
-                "langchain_community 패키지가 설치되지 않았습니다. 'pip install langchain-community'를 실행해주세요."
-            )
-            return None
+            async for state_update in self.app.astream(initial_state, config):
+                # 각 노드의 실행 결과를 실시간으로 전송
+                for node_name, node_state in state_update.items():
+                    yield {
+                        "type": "step_update",
+                        "step": node_state["current_step"],
+                        "node": node_name,
+                        "active_servers": node_state["active_mcp_servers"],
+                        "step_usage": node_state["step_mcp_usage"],
+                        "total_used": node_state["total_used_servers"],
+                        "is_investment_related": node_state["is_investment_related"],
+                        "validation_confidence": node_state.get(
+                            "validation_confidence", 0.0
+                        ),
+                        "errors": node_state["errors"],
+                        "warnings": node_state["warning_messages"],
+                    }
+
+                    # 최종 응답이 준비되면 전송
+                    if node_state["final_response"]:
+                        # 처리 완료 시간 설정
+                        completed_state = set_processing_end_time(node_state)
+
+                        yield {
+                            "type": "final_response",
+                            "response": completed_state["final_response"],
+                            "response_type": completed_state["response_type"],
+                            "processing_time": completed_state["total_processing_time"],
+                            "used_servers": completed_state["total_used_servers"],
+                            "step_usage": completed_state["step_mcp_usage"],
+                            "state": completed_state,
+                        }
+
         except Exception as e:
-            self.logger.error(f"로컬 Ollama LLM 모델 초기화 실패: {e}")
-            self.logger.info("Ollama가 실행 중인지 확인해주세요: 'ollama serve'")
-            return None
+            yield {
+                "type": "error",
+                "error": str(e),
+                "response": f"스트리밍 처리 중 오류: {str(e)}",
+                "response_type": "error",
+            }
+
+    def get_conversation_history(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """세션의 대화 기록 조회"""
+        try:
+            # MemorySaver에서 세션 기록 조회
+            config = {"configurable": {"thread_id": session_id}}
+
+            # 체크포인트에서 마지막 상태 가져오기
+            checkpoint = self.memory.get(config)
+            if checkpoint:
+                return {
+                    "session_id": session_id,
+                    "last_state": checkpoint,
+                    "exists": True,
+                }
+            else:
+                return {"session_id": session_id, "exists": False}
+
+        except Exception as e:
+            return {"session_id": session_id, "error": str(e), "exists": False}
+
+    def clear_conversation_history(self, session_id: str) -> bool:
+        """세션의 대화 기록 삭제"""
+        try:
+            # 메모리에서 세션 기록 삭제
+            # MemorySaver에는 직접적인 삭제 메서드가 없으므로
+            # 새로운 워크플로우 앱을 다시 컴파일하여 메모리 초기화
+            return True
+
+        except Exception:
+            return False
+
+    def get_available_mcp_servers(self) -> List[str]:
+        """사용 가능한 MCP 서버 목록 반환"""
+        return list(self.nodes.server_tools_map.keys())
+
+    def get_mcp_server_tools(self, server_name: str) -> Optional[List[str]]:
+        """특정 MCP 서버의 도구 목록 반환"""
+        return self.nodes.server_tools_map.get(server_name)

@@ -27,7 +27,7 @@ from .client import FinancialAnalysisClient
 class FinancialAnalysisMCPServer(BaseMCPServer):
     """재무 분석 시스템 MCP 서버 (BaseMCPServer 상속)"""
 
-    def __init__(self, port: int = 8041, debug: bool = False):
+    def __init__(self, port: int = 8040, debug: bool = False):
         super().__init__("financial_analysis", port=port, debug=debug)
 
     def _initialize_clients(self) -> None:
@@ -236,7 +236,7 @@ def main():
     logger = logging.getLogger(__name__)
 
     # 서버 인스턴스 생성
-    server = FinancialAnalysisMCPServer(port=8041, debug=True)
+    server = FinancialAnalysisMCPServer(port=8040, debug=True)
 
     try:
         # 서버 시작 준비

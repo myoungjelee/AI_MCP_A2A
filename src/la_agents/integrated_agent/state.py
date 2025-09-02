@@ -1,201 +1,218 @@
-"""
-단일 통합 에이전트 상태 정의
+"""통합 에이전트 상태 관리 모듈"""
 
-모든 기능을 통합한 단일 에이전트의 워크플로우 상태를 관리합니다.
-"""
-
+from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict
 
 
 class IntegratedAgentState(TypedDict):
-    """통합 에이전트 상태"""
+    """통합 에이전트 상태 관리 클래스"""
 
-    # 입력 데이터
-    request: Dict[str, Any]  # 사용자 요청
-    task_type: str  # 작업 타입 (data_collection, analysis, trading, etc.)
+    # === 기본 입력 ===
+    question: str  # 사용자 질문
+    session_id: Optional[str]  # 세션 ID
+    timestamp: datetime  # 질문 시간
 
-    # 데이터 수집 단계
-    collected_data: Dict[str, Any]  # 수집된 모든 데이터
-    data_sources: List[str]  # 사용된 데이터 소스들
-    data_quality: Dict[str, str]  # 데이터 품질 정보
+    # === 투자 질문 검증 ===
+    is_investment_related: bool  # 투자 관련 질문인지 여부
+    validation_confidence: float  # 검증 신뢰도 (0.0-1.0)
+    validation_reasoning: str  # 검증 이유
 
-    # 분석 단계
-    analysis_results: Dict[str, Any]  # 분석 결과들
-    insights: List[str]  # 주요 인사이트들
-    correlations: Dict[str, float]  # 데이터 간 상관관계
+    # === MCP 서버 관련 ===
+    available_mcp_servers: List[str]  # 사용 가능한 MCP 서버들
 
-    # 의사결정 단계
-    decision: Optional[Dict[str, Any]]  # 최종 결정
-    confidence: float  # 결정 신뢰도
-    reasoning: str  # 결정 근거
+    # 단계별 MCP 서버 사용 현황
+    current_step: (
+        str  # 현재 진행 단계 ("validate", "collect", "analyze", "decide", "respond")
+    )
+    active_mcp_servers: List[str]  # 현재 활성화된 MCP 서버들
+    mcp_server_status: Dict[
+        str, str
+    ]  # 각 서버별 상태 ("idle", "running", "completed", "error")
+    mcp_server_actions: Dict[str, str]  # 각 서버별 현재 작업 내용
+    mcp_server_results: Dict[str, Any]  # 각 서버별 결과
 
-    # 실행 단계
-    action_taken: Optional[Dict[str, Any]]  # 실행된 액션
-    execution_status: str  # 실행 상태
+    # 단계별 사용된 서버 기록
+    step_mcp_usage: Dict[
+        str, List[str]
+    ]  # {"collect": ["macroeconomic", "naver_news"], "analyze": [...]}
+    total_used_servers: List[str]  # 전체 사용된 서버들 (중복 제거)
 
-    # 처리 과정
-    current_step: str  # 현재 처리 단계
-    progress: float  # 진행률 (0.0 ~ 1.0)
-    step_logs: List[Dict[str, Any]]  # 단계별 로그
+    # === 데이터 수집 ===
+    collected_data: Dict[str, Any]  # 수집된 데이터
+    data_collection_status: str  # 데이터 수집 상태
+    data_quality_score: float  # 데이터 품질 점수
 
-    # 대화형 응답
-    ai_response: Optional[str]  # LLM이 생성한 최종 응답 (ChatGPT 스타일)
+    # === 분석 결과 ===
+    analysis_result: Dict[str, Any]  # 분석 결과
+    analysis_confidence: float  # 분석 신뢰도
+    key_insights: List[str]  # 핵심 인사이트
 
-    # 에러 및 메타데이터
+    # === 최종 응답 ===
+    final_response: str  # 마크다운 형식 최종 응답
+    response_type: str  # 응답 타입 ("analysis", "rejection", "error")
+
+    # === 에러 처리 ===
     errors: List[Dict[str, Any]]  # 발생한 에러들
-    metadata: Dict[str, Any]  # 메타데이터
+    warning_messages: List[str]  # 경고 메시지들
+
+    # === 메타데이터 ===
+    processing_start_time: datetime  # 처리 시작 시간
+    processing_end_time: Optional[datetime]  # 처리 완료 시간
+    total_processing_time: Optional[float]  # 총 처리 시간 (초)
 
 
 def create_initial_state(
-    request: Dict[str, Any], task_type: str = "comprehensive_analysis"
+    question: str, session_id: Optional[str] = None
 ) -> IntegratedAgentState:
     """초기 상태 생성"""
-
     return IntegratedAgentState(
-        request=request,
-        task_type=task_type,
+        question=question,
+        session_id=session_id,
+        timestamp=datetime.now(),
+        # 검증 초기값 (검증 과정 제거로 기본값으로 설정)
+        is_investment_related=True,  # 모든 질문을 처리하도록 설정
+        validation_confidence=1.0,
+        validation_reasoning="검증 과정 생략",
+        # MCP 서버 초기값
+        available_mcp_servers=[
+            "macroeconomic",
+            "financial_analysis",
+            "stock_analysis",
+            "naver_news",
+            "tavily_search",
+            "kiwoom",
+        ],
+        current_step="collect",
+        active_mcp_servers=[],
+        mcp_server_status={},
+        mcp_server_actions={},
+        mcp_server_results={},
+        step_mcp_usage={},
+        total_used_servers=[],
+        # 데이터 수집 초기값
         collected_data={},
-        data_sources=[],
-        data_quality={},
-        analysis_results={},
-        insights=[],
-        correlations={},
-        decision=None,
-        confidence=0.0,
-        reasoning="",
-        action_taken=None,
-        execution_status="pending",
-        current_step="initialized",
-        progress=0.0,
-        step_logs=[],
-        ai_response=None,
+        data_collection_status="pending",
+        data_quality_score=0.0,
+        # 분석 초기값
+        analysis_result={},
+        analysis_confidence=0.0,
+        key_insights=[],
+        # 응답 초기값
+        final_response="",
+        response_type="",
+        # 에러 초기값
         errors=[],
-        metadata={},
+        warning_messages=[],
+        # 메타데이터 초기값
+        processing_start_time=datetime.now(),
+        processing_end_time=None,
+        total_processing_time=None,
     )
 
 
-def update_progress(
-    state: IntegratedAgentState, progress: float
+def update_mcp_server_status(
+    state: IntegratedAgentState, server_name: str, status: str, action: str = ""
 ) -> IntegratedAgentState:
-    """진행률 업데이트"""
-    state["progress"] = max(0.0, min(1.0, progress))
-    return state
+    """MCP 서버 상태 업데이트"""
+    new_state = state.copy()
+    new_state["mcp_server_status"][server_name] = status
+    if action:
+        new_state["mcp_server_actions"][server_name] = action
+    return new_state
 
 
-def add_step_log(
-    state: IntegratedAgentState, step: str, message: str, level: str = "info"
+def add_mcp_server_result(
+    state: IntegratedAgentState, server_name: str, result: Any
 ) -> IntegratedAgentState:
-    """단계별 로그 추가"""
-    import time
-
-    log_entry = {
-        "timestamp": time.time(),
-        "step": step,
-        "level": level,
-        "message": message,
-    }
-
-    state["step_logs"].append(log_entry)
-    return state
+    """MCP 서버 결과 추가"""
+    new_state = state.copy()
+    new_state["mcp_server_results"][server_name] = result
+    return new_state
 
 
-def update_step(state: IntegratedAgentState, step: str) -> IntegratedAgentState:
-    """처리 단계 업데이트"""
-    state["current_step"] = step
-    return state
-
-
-def add_collected_data(
-    state: IntegratedAgentState,
-    category: str,
-    data: Any,
-    source: str,
-    quality: str = "good",
+def update_current_step(
+    state: IntegratedAgentState, step: str, active_servers: Optional[List[str]] = None
 ) -> IntegratedAgentState:
-    """수집된 데이터 추가"""
-    import time
+    """현재 단계 및 활성 서버 업데이트"""
+    new_state = state.copy()
+    new_state["current_step"] = step
 
-    if category not in state["collected_data"]:
-        state["collected_data"][category] = []
+    if active_servers is not None:
+        new_state["active_mcp_servers"] = active_servers
 
-    state["collected_data"][category].append(
-        {
-            "data": data,
-            "source": source,
-            "timestamp": time.time(),
-        }
-    )
+        # 단계별 사용 서버 기록
+        if step not in new_state["step_mcp_usage"]:
+            new_state["step_mcp_usage"][step] = []
+        new_state["step_mcp_usage"][step].extend(active_servers)
 
-    if source not in state["data_sources"]:
-        state["data_sources"].append(source)
+        # 전체 사용된 서버 목록 업데이트 (중복 제거)
+        for server in active_servers:
+            if server not in new_state["total_used_servers"]:
+                new_state["total_used_servers"].append(server)
 
-    state["data_quality"][category] = quality
-    return state
-
-
-def add_analysis_result(
-    state: IntegratedAgentState, analysis_type: str, result: Any
-) -> IntegratedAgentState:
-    """분석 결과 추가"""
-    state["analysis_results"][analysis_type] = result
-    return state
-
-
-def add_insight(state: IntegratedAgentState, insight: str) -> IntegratedAgentState:
-    """인사이트 추가"""
-    state["insights"].append(insight)
-    return state
-
-
-def set_decision(
-    state: IntegratedAgentState,
-    decision: Dict[str, Any],
-) -> IntegratedAgentState:
-    """의사결정 설정"""
-    state["decision"] = decision
-    state["confidence"] = decision.get("confidence", 0.0)
-    state["reasoning"] = decision.get("reasoning", "")
-    return state
-
-
-def set_action_taken(
-    state: IntegratedAgentState, action: Dict[str, Any], status: str = "completed"
-) -> IntegratedAgentState:
-    """실행된 액션 설정"""
-    state["action_taken"] = action
-    state["execution_status"] = status
-    return state
+    return new_state
 
 
 def add_error(
-    state: IntegratedAgentState, context: str, message: str
+    state: IntegratedAgentState, error_message: str, error_code: str = "UNKNOWN"
 ) -> IntegratedAgentState:
     """에러 추가"""
-    import time
-
-    error_entry = {
-        "timestamp": time.time(),
-        "error_type": "AgentError",
-        "message": message,
-        "context": context,
+    new_state = state.copy()
+    error_info = {
+        "message": error_message,
+        "code": error_code,
+        "timestamp": datetime.now().isoformat(),
         "step": state["current_step"],
     }
+    new_state["errors"].append(error_info)
+    return new_state
 
-    state["errors"].append(error_entry)
-    return state
+
+def add_warning(
+    state: IntegratedAgentState, warning_message: str
+) -> IntegratedAgentState:
+    """경고 메시지 추가"""
+    new_state = state.copy()
+    new_state["warning_messages"].append(warning_message)
+    return new_state
+
+
+def set_processing_end_time(state: IntegratedAgentState) -> IntegratedAgentState:
+    """처리 완료 시간 설정"""
+    new_state = state.copy()
+    end_time = datetime.now()
+    new_state["processing_end_time"] = end_time
+
+    # 총 처리 시간 계산
+    start_time = new_state["processing_start_time"]
+    total_time = (end_time - start_time).total_seconds()
+    new_state["total_processing_time"] = total_time
+
+    return new_state
+
+
+def get_step_summary(state: IntegratedAgentState) -> Dict[str, Any]:
+    """단계별 요약 정보 반환"""
+    return {
+        "current_step": state["current_step"],
+        "active_servers": state["active_mcp_servers"],
+        "step_usage": state["step_mcp_usage"],
+        "total_used": state["total_used_servers"],
+        "server_status": state["mcp_server_status"],
+    }
 
 
 def get_state_summary(state: IntegratedAgentState) -> Dict[str, Any]:
-    """상태 요약 반환"""
+    """전체 상태 요약 정보 반환"""
     return {
-        "task_type": state["task_type"],
+        "question": state["question"],
+        "session_id": state["session_id"],
+        "is_investment_related": state["is_investment_related"],
+        "validation_confidence": state["validation_confidence"],
         "current_step": state["current_step"],
-        "progress": state["progress"],
-        "data_sources_count": len(state["data_sources"]),
-        "analysis_results_count": len(state["analysis_results"]),
-        "insights_count": len(state["insights"]),
-        "decision_made": state["decision"] is not None,
-        "confidence": state["confidence"],
-        "execution_status": state["execution_status"],
+        "total_used_servers": len(state["total_used_servers"]),
+        "processing_time": state["total_processing_time"],
         "error_count": len(state["errors"]),
+        "warning_count": len(state["warning_messages"]),
+        "response_type": state["response_type"],
     }

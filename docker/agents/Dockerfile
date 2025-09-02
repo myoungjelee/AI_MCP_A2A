@@ -20,11 +20,15 @@ COPY src/ ./src/
 # 환경 변수 설정
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
-ENV LANGGRAPH_ENVIRONMENT=production
+ENV AGENT_PORT=8000
+ENV AGENT_HOST=0.0.0.0
 
 # 헬스체크 추가
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:${AGENT_PORT:-8000}/health')" || exit 1
+    CMD curl -f http://localhost:${AGENT_PORT}/health || exit 1
 
-# 기본 명령어 (환경변수로 오버라이드 가능)
-CMD ["python", "-m", "src.la_agents.integrated_agent.server"]
+# 포트 노출
+EXPOSE 8000
+
+# 통합 에이전트 실행
+CMD ["python", "-m", "src.la_agents.integrated_agent.integrated_agent"]

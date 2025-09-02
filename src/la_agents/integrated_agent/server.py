@@ -1,411 +1,329 @@
-"""
-통합 에이전트 HTTP 서버
+"""통합 에이전트 FastAPI 서버"""
 
-LangGraph 에이전트를 HTTP API로 제공하는 서버입니다.
-"""
+import asyncio
+import json
+import uuid
+from datetime import datetime
+from typing import Optional
 
-import logging
-import os
-from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
-from uuid import uuid4
-
-import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .agent import IntegratedAgent
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# === 요청/응답 모델 ===
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """애플리케이션 생명주기 관리"""
-    global agent
+class AnalyzeRequest(BaseModel):
+    """분석 요청 모델"""
 
-    # 시작 시 초기화
-    try:
-        logger.info("통합 에이전트 초기화 시작")
-
-        # 환경 변수에서 MCP 서버 목록 가져오기
-        mcp_servers = os.getenv("MCP_SERVERS", "").split(",")
-        if mcp_servers == [""]:
-            mcp_servers = [
-                "macroeconomic",
-                "financial_analysis",
-                "stock_analysis",
-                "naver_news",
-                "tavily_search",
-                "kiwoom",
-            ]
-
-        # 에이전트 초기화
-        agent = IntegratedAgent(
-            name="integrated_agent",
-            mcp_servers=mcp_servers,
-            config={
-                "max_retries": 3,
-                "timeout": 30,
-                "enable_metrics": True,
-            },
-            llm_model=os.getenv("LLM_MODEL", "gpt-oss:20b"),
-            ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-        )
-
-        logger.info(f"통합 에이전트 초기화 완료: {agent.name}")
-        logger.info(f"MCP 서버 목록: {mcp_servers}")
-
-    except Exception as e:
-        logger.error(f"에이전트 초기화 실패: {e}")
-        raise
-
-    yield
-
-    # 종료 시 정리
-    if agent:
-        try:
-            await agent._disconnect_mcp_servers()
-            logger.info("에이전트 정리 완료")
-        except Exception as e:
-            logger.error(f"에이전트 정리 실패: {e}")
+    question: str
+    session_id: Optional[str] = None
 
 
-# FastAPI 앱 생성 (lifespan 사용)
+class AnalyzeResponse(BaseModel):
+    """분석 응답 모델"""
+
+    success: bool
+    response: str
+    response_type: str
+    is_investment_related: bool
+    validation_confidence: float
+    processing_time: Optional[float] = None
+    used_servers: list = []
+    step_usage: dict = {}
+    session_id: str
+    error: Optional[str] = None
+
+
+# === FastAPI 앱 초기화 ===
+
 app = FastAPI(
-    title="AI MCP A2A - 통합 에이전트 API",
-    description="LangGraph 기반 통합 에이전트 API",
+    title="통합 투자 분석 에이전트",
+    description="LangGraph 기반 투자 질문 분석 및 의사결정 시스템",
     version="1.0.0",
-    lifespan=lifespan,
 )
 
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # 프로덕션에서는 특정 도메인만 허용
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # 전역 에이전트 인스턴스
-agent: IntegratedAgent = None
-SESSIONS: Dict[str, List[Dict[str, str]]] = {}
+_AGENT: Optional[IntegratedAgent] = None
 
 
-class AnalysisRequest(BaseModel):
-    """분석 요청 모델"""
-
-    request: Dict[str, Any]
-    task_type: str = "comprehensive_analysis"
-
-
-class ChatRequest(BaseModel):
-    """대화형 요청 모델"""
-
-    message: str
-    session_id: Optional[str] = None
-    task_type: str = "comprehensive_analysis"
+async def get_agent() -> IntegratedAgent:
+    """에이전트 인스턴스 반환 (지연 초기화)"""
+    global _AGENT
+    if _AGENT is None:
+        _AGENT = IntegratedAgent()
+    return _AGENT
 
 
-class HealthResponse(BaseModel):
-    """헬스 체크 응답 모델"""
-
-    status: str
-    agent_name: str
-    workflow_ready: bool
-    mcp_servers: Dict[str, str]
-    timestamp: float
+# === API 엔드포인트 ===
 
 
-# on_event 핸들러들이 lifespan으로 이동됨
-
-
-@app.get("/", response_model=Dict[str, Any])
+@app.get("/")
 async def root():
     """루트 엔드포인트"""
     return {
-        "message": "AI MCP A2A - 통합 에이전트 API",
+        "message": "통합 투자 분석 에이전트 API",
         "version": "1.0.0",
-        "status": "running",
+        "endpoints": {
+            "analyze": "/analyze",
+            "stream": "/analyze/stream",
+            "health": "/health",
+            "mcp_status": "/mcp/status",
+            "mcp_servers": "/mcp/servers",
+            "validate": "/validate/investment/json",
+        },
     }
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health")
 async def health_check():
     """헬스 체크"""
-    if not agent:
-        raise HTTPException(status_code=503, detail="에이전트가 초기화되지 않았습니다")
+    agent = await get_agent()
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "available_servers": agent.get_available_mcp_servers(),
+    }
 
+
+@app.post("/analyze", response_model=AnalyzeResponse)
+async def analyze_question(request: AnalyzeRequest):
+    """투자 질문 분석 (동기 방식)"""
     try:
-        health = await agent.health_check()
-        return HealthResponse(**health)
-    except Exception as e:
-        logger.error(f"헬스 체크 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        agent = await get_agent()
 
+        # 세션 ID 생성 (없는 경우)
+        session_id = request.session_id or str(uuid.uuid4())
 
-@app.get("/info", response_model=Dict[str, Any])
-async def get_agent_info():
-    """에이전트 정보 조회"""
-    if not agent:
-        raise HTTPException(status_code=503, detail="에이전트가 초기화되지 않았습니다")
+        # 질문 처리
+        result = await agent.process_question(request.question, session_id)
 
-    return agent.get_agent_info()
-
-
-@app.get("/stats", response_model=Dict[str, Any])
-async def get_performance_stats():
-    """성능 통계 조회"""
-    if not agent:
-        raise HTTPException(status_code=503, detail="에이전트가 초기화되지 않았습니다")
-
-    try:
-        stats = await agent.get_performance_stats()
-        return stats
-    except Exception as e:
-        logger.error(f"성능 통계 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-def _format_chat_reply(result: Dict[str, Any]) -> str:
-    """결과를 간결한 대화 응답으로 포맷"""
-    if not result.get("success"):
-        return f"❌ 분석 실패: {result.get('error', 'Unknown error')}"
-
-    # 결과 구조 전체 디버깅
-    logger.info("🔍 결과 구조 전체 분석:")
-    logger.info(f"  - 최상위 키들: {list(result.keys())}")
-    if "result" in result:
-        logger.info(f"  - result 내부: {type(result['result'])}")
-        if isinstance(result["result"], dict):
-            logger.info(f"  - result 키들: {list(result['result'].keys())}")
-
-    # 먼저 AI 응답이 있는지 확인 - 여러 경로 시도
-    ai_response = None
-
-    # 경로 1: result.result.ai_response
-    if (
-        result.get("result")
-        and isinstance(result["result"], dict)
-        and result["result"].get("ai_response")
-    ):
-        logger.info("🎯 AI 응답 발견: 경로 1 (result.result.ai_response)")
-        ai_response = result["result"]["ai_response"]
-    # 경로 2: result.ai_response
-    elif result.get("ai_response"):
-        logger.info("🎯 AI 응답 발견: 경로 2 (result.ai_response)")
-        ai_response = result["ai_response"]
-    # 경로 3: result 안에서 더 깊이 검색
-    else:
-        logger.info("❌ AI 응답을 찾을 수 없음")
-        # result 전체를 문자열로 변환해서 ai_response 포함 여부 확인
-        result_str = str(result)
-        if "ai_response" in result_str:
-            logger.info("📝 결과 문자열에 'ai_response' 포함됨")
-            # result 딕셔너리 안에서 직접 찾기
-            if "result" in result and isinstance(result["result"], dict):
-                # state가 result에 포함되어 있을 수 있음
-                ai_response = result["result"].get("ai_response")
-                if ai_response:
-                    logger.info("🎯 AI 응답 발견: 경로 3 (깊은 검색)")
-                    return (
-                        ai_response.strip()
-                        if isinstance(ai_response, str)
-                        and len(ai_response.strip()) > 10
-                        else None
-                    )
-
-    if ai_response and isinstance(ai_response, str) and len(ai_response.strip()) > 10:
-        logger.info(f"✅ AI 응답 반환: {len(ai_response)} 문자")
-        return ai_response.strip()
-    else:
-        logger.info("⚠️ AI 응답이 유효하지 않음 - 기본 포맷 사용")
-
-    # AI 응답이 없으면 기존 요약 방식 사용
-    summary = result.get("summary", {})
-    if not summary:
-        return "분석을 완료했지만 요약 정보를 생성하지 못했어요."
-
-    progress = int(round(summary.get("progress", 0) * 100))
-    decided = summary.get("decision_made", False)
-    confidence = summary.get("confidence", 0)
-    data_sources = summary.get("data_sources_count", 0)
-    analyses = summary.get("analysis_results_count", 0)
-    insights = summary.get("insights_count", 0)
-
-    header = "✅ 분석 완료" if decided else "⏳ 분석 진행 결과"
-    body = (
-        f"진행률 {progress}% • 신뢰도 {confidence}%\n"
-        f"데이터 {data_sources} • 분석 {analyses} • 인사이트 {insights}"
-    )
-    tail = "→ 더 궁금한 점이 있으면 이어서 물어보세요!"
-    return f"{header}\n{body}\n{tail}"
-
-
-@app.post("/analyze", response_model=Dict[str, Any])
-async def run_analysis(request: AnalysisRequest):
-    """종합 분석 실행"""
-    if not agent:
-        raise HTTPException(status_code=503, detail="에이전트가 초기화되지 않았습니다")
-
-    try:
-        logger.info(f"분석 요청 수신: {request.task_type}")
-
-        result = await agent.run_comprehensive_analysis(
-            request=request.request, task_type=request.task_type
+        return AnalyzeResponse(
+            success=result["success"],
+            response=result["response"],
+            response_type=result["response_type"],
+            is_investment_related=result.get("is_investment_related", False),
+            validation_confidence=result.get("validation_confidence", 0.0),
+            processing_time=result.get("processing_time"),
+            used_servers=result.get("used_servers", []),
+            step_usage=result.get("step_usage", {}),
+            session_id=session_id,
+            error=result.get("error"),
         )
 
-        logger.info(f"분석 완료: {result.get('success', False)}")
-        return result
-
     except Exception as e:
-        logger.error(f"분석 실행 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.post("/chat", response_model=Dict[str, Any])
-async def chat(request: ChatRequest):
-    """대화형 질의/응답(간단 세션 메모리 포함)"""
-    if not agent:
-        raise HTTPException(status_code=503, detail="에이전트가 초기화되지 않았습니다")
-
-    if not request.message or not request.message.strip():
-        raise HTTPException(status_code=400, detail="message는 필수입니다")
-
-    # 세션 준비
-    session_id = request.session_id or str(uuid4())
-    history = SESSIONS.setdefault(session_id, [])
-
-    # 사용자 메시지 저장
-    history.append({"role": "user", "content": request.message.strip()})
-
+@app.post("/analyze/stream")
+async def stream_analyze_question(request: AnalyzeRequest):
+    """투자 질문 분석 (스트리밍 방식)"""
     try:
-        # 에이전트 실행 - 질문 전체를 전달
-        result = await agent.run_comprehensive_analysis(
-            request={
-                "question": request.message.strip(),
-                "history": history,
-                "include_news": True,
-                "include_sentiment": True,
+        agent = await get_agent()
+
+        # 세션 ID 생성 (없는 경우)
+        session_id = request.session_id or str(uuid.uuid4())
+
+        async def event_stream():
+            """서버-센트 이벤트 스트림"""
+            try:
+                # 시작 이벤트
+                yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'question': request.question})}\n\n"
+
+                # 에이전트 스트리밍 처리
+                async for update in agent.stream_process_question(
+                    request.question, session_id
+                ):
+                    event_data = {
+                        **update,
+                        "session_id": session_id,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                    yield f"data: {json.dumps(event_data)}\n\n"
+
+                    # 짧은 지연으로 프론트엔드가 이벤트를 처리할 시간 제공
+                    await asyncio.sleep(0.1)
+
+                # 완료 이벤트
+                yield f"data: {json.dumps({'type': 'complete', 'session_id': session_id})}\n\n"
+
+            except Exception as e:
+                # 에러 이벤트
+                error_data = {
+                    "type": "error",
+                    "error": str(e),
+                    "session_id": session_id,
+                    "timestamp": datetime.now().isoformat(),
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # nginx 버퍼링 비활성화
             },
-            task_type=request.task_type,
         )
 
-        reply_text = _format_chat_reply(result)
-        history.append({"role": "assistant", "content": reply_text})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/validate/investment/json")
+async def validate_investment_question(request: dict):
+    """투자 질문 검증 (프론트엔드용)"""
+    try:
+        question = request.get("question", "").strip()
+        if not question:
+            raise HTTPException(status_code=400, detail="질문을 입력해주세요")
+
+        # 기존 검증 로직 활용
+        from .validation import InvestmentQuestionValidator
+
+        validator = InvestmentQuestionValidator()
+
+        is_related, confidence, reasoning = await validator.validate_question(question)
 
         return {
             "success": True,
-            "session_id": session_id,
-            "message": reply_text,
-            "summary": result.get("summary"),
+            "is_investment_related": is_related,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "message": "투자 관련 질문" if is_related else "투자 무관 질문",
         }
 
     except Exception as e:
-        err = f"대화 처리 실패: {e}"
-        history.append({"role": "assistant", "content": f"❌ {err}"})
-        raise HTTPException(status_code=500, detail=err) from e
+        raise HTTPException(status_code=500, detail=f"검증 오류: {str(e)}") from e
 
 
-@app.get("/chat/{session_id}", response_model=Dict[str, Any])
-async def get_chat_history(session_id: str):
-    """세션 히스토리 조회"""
-    if session_id not in SESSIONS:
-        return {"session_id": session_id, "messages": []}
-    return {"session_id": session_id, "messages": SESSIONS[session_id]}
-
-
-@app.post("/collect", response_model=Dict[str, Any])
-async def run_data_collection(request: AnalysisRequest):
-    """데이터 수집만 실행"""
-    if not agent:
-        raise HTTPException(status_code=503, detail="에이전트가 초기화되지 않았습니다")
-
+@app.get("/mcp/status")
+async def get_mcp_status():
+    """MCP 서버 상태 조회 (프론트엔드용)"""
     try:
-        logger.info("데이터 수집 요청 수신")
+        agent = await get_agent()
+        available_servers = agent.get_available_mcp_servers()
 
-        result = await agent.run_data_collection(request=request.request)
+        # MCP 서버 연결 상태 확인
+        mcp_servers = {}
+        connected_servers = []
+        disconnected_servers = []
+        total_tools = 0
 
-        logger.info(f"데이터 수집 완료: {result.get('success', False)}")
-        return result
+        for server in available_servers:
+            try:
+                tools = agent.get_mcp_server_tools(server)
+                if tools:
+                    mcp_servers[server] = "connected"
+                    connected_servers.append(server)
+                    total_tools += len(tools)
+                else:
+                    mcp_servers[server] = "disconnected"
+                    disconnected_servers.append(server)
+            except Exception:
+                mcp_servers[server] = "disconnected"
+                disconnected_servers.append(server)
+
+        return {
+            "mcp_servers": mcp_servers,
+            "connected_count": len(connected_servers),
+            "total_count": len(available_servers),
+            "connected_servers": connected_servers,
+            "disconnected_servers": disconnected_servers,
+            "available_tools": total_tools,
+        }
 
     except Exception as e:
-        logger.error(f"데이터 수집 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.post("/analyze-market", response_model=Dict[str, Any])
-async def run_market_analysis(request: AnalysisRequest):
-    """시장 분석만 실행"""
-    if not agent:
-        raise HTTPException(status_code=503, detail="에이전트가 초기화되지 않았습니다")
-
+@app.get("/mcp/servers")
+async def get_mcp_servers():
+    """사용 가능한 MCP 서버 목록 조회"""
     try:
-        logger.info("시장 분석 요청 수신")
+        agent = await get_agent()
+        servers = agent.get_available_mcp_servers()
 
-        result = await agent.run_market_analysis(request=request.request)
+        server_details = {}
+        for server in servers:
+            tools = agent.get_mcp_server_tools(server)
+            server_details[server] = {
+                "name": server,
+                "tools": tools,
+                "tool_count": len(tools) if tools else 0,
+            }
 
-        logger.info(f"시장 분석 완료: {result.get('success', False)}")
-        return result
+        return {"servers": servers, "count": len(servers), "details": server_details}
 
     except Exception as e:
-        logger.error(f"시장 분석 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.post("/decide", response_model=Dict[str, Any])
-async def run_investment_decision(request: AnalysisRequest):
-    """투자 의사결정만 실행"""
-    if not agent:
-        raise HTTPException(status_code=503, detail="에이전트가 초기화되지 않았습니다")
-
+@app.get("/session/{session_id}/history")
+async def get_session_history(session_id: str):
+    """세션 대화 기록 조회"""
     try:
-        logger.info("투자 의사결정 요청 수신")
-
-        result = await agent.run_investment_decision(request=request.request)
-
-        logger.info(f"투자 의사결정 완료: {result.get('success', False)}")
-        return result
+        agent = await get_agent()
+        history = agent.get_conversation_history(session_id)
+        return history
 
     except Exception as e:
-        logger.error(f"투자 의사결정 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.post("/execute", response_model=Dict[str, Any])
-async def run_trading_execution(request: AnalysisRequest):
-    """거래 실행만 실행"""
-    if not agent:
-        raise HTTPException(status_code=503, detail="에이전트가 초기화되지 않았습니다")
-
+@app.delete("/session/{session_id}/history")
+async def clear_session_history(session_id: str):
+    """세션 대화 기록 삭제"""
     try:
-        logger.info("거래 실행 요청 수신")
+        agent = await get_agent()
+        success = agent.clear_conversation_history(session_id)
 
-        result = await agent.run_trading_execution(request=request.request)
-
-        logger.info(f"거래 실행 완료: {result.get('success', False)}")
-        return result
+        return {
+            "success": success,
+            "session_id": session_id,
+            "message": "대화 기록이 삭제되었습니다." if success else "삭제 실패",
+        }
 
     except Exception as e:
-        logger.error(f"거래 실행 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# === 개발 전용 엔드포인트 ===
+
+
+@app.get("/debug/state/{session_id}")
+async def debug_get_state(session_id: str):
+    """디버그: 세션 상태 조회"""
+    try:
+        agent = await get_agent()
+        state = agent.get_conversation_history(session_id)
+        return {"session_id": session_id, "state": state, "debug": True}
+
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 if __name__ == "__main__":
-    # 환경 변수에서 포트 가져오기
-    port = int(os.getenv("AGENT_PORT", 8000))
-    host = os.getenv("AGENT_HOST", "0.0.0.0")
+    import uvicorn
 
-    logger.info(f"통합 에이전트 서버 시작: {host}:{port}")
-
+    # 개발 서버 실행
     uvicorn.run(
         "src.la_agents.integrated_agent.server:app",
-        host=host,
-        port=port,
-        reload=False,
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
         log_level="info",
     )

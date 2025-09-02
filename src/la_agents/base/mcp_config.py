@@ -29,7 +29,7 @@ class MCPServerConfig:
         },
         "financial_analysis": {
             "transport": "streamable_http",
-            "url": "http://financial_analysis_mcp:8041/mcp/",
+            "url": "http://financial_analysis_mcp:8040/mcp/",
         },
         "macroeconomic": {
             "transport": "streamable_http",

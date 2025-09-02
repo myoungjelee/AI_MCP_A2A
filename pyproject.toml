@@ -32,6 +32,7 @@ dependencies = [
     "pytz>=2025.2",
     "langchain-community>=0.3.29",
     "uvicorn>=0.20.0",
+    "langchain-ollama>=0.3.7",
 ]
 
 [project.optional-dependencies]
