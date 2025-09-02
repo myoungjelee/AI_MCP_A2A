@@ -136,12 +136,25 @@ class IntegratedAgent:
             # 워크플로우 스트리밍 실행
             config = {"configurable": {"thread_id": session_id or "default"}}
 
+            previous_step = None
             async for state_update in self.app.astream(initial_state, config):
                 # 각 노드의 실행 결과를 실시간으로 전송
                 for node_name, node_state in state_update.items():
+                    current_step = node_state["current_step"]
+
+                    # 이전 단계가 완료되었으면 완료 신호 전송
+                    if previous_step and previous_step != current_step:
+                        yield {
+                            "type": "step_completed",
+                            "step": previous_step,
+                            "status": "completed",
+                        }
+
+                    # 현재 단계 진행 중 신호 전송
                     yield {
                         "type": "step_update",
-                        "step": node_state["current_step"],
+                        "step": current_step,
+                        "status": "running",
                         "node": node_name,
                         "active_servers": node_state["active_mcp_servers"],
                         "step_usage": node_state["step_mcp_usage"],
@@ -154,20 +167,43 @@ class IntegratedAgent:
                         "warnings": node_state["warning_messages"],
                     }
 
+                    previous_step = current_step
+
                     # 최종 응답이 준비되면 전송
                     if node_state["final_response"]:
+                        # 마지막 단계 완료 신호 전송
+                        yield {
+                            "type": "step_completed",
+                            "step": current_step,
+                            "status": "completed",
+                        }
+
                         # 처리 완료 시간 설정
                         completed_state = set_processing_end_time(node_state)
 
-                        yield {
+                        print("🔥 final_response 전송 시작")
+                        response_data = {
                             "type": "final_response",
                             "response": completed_state["final_response"],
                             "response_type": completed_state["response_type"],
                             "processing_time": completed_state["total_processing_time"],
                             "used_servers": completed_state["total_used_servers"],
                             "step_usage": completed_state["step_mcp_usage"],
-                            "state": completed_state,
+                            "is_investment_related": completed_state[
+                                "is_investment_related"
+                            ],
+                            "validation_confidence": completed_state[
+                                "validation_confidence"
+                            ],
                         }
+                        print(f"응답 데이터 크기: {len(str(response_data))} 문자")
+                        yield response_data
+                        print("✅ final_response 전송 완료")
+
+                        # 스트리밍 완료 신호
+                        print("🔥 complete 신호 전송 시작")
+                        yield {"type": "complete", "message": "분석이 완료되었습니다."}
+                        print("✅ complete 신호 전송 완료")
 
         except Exception as e:
             yield {

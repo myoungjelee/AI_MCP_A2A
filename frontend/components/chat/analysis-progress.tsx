@@ -35,22 +35,22 @@ interface AnalysisProgressProps {
 }
 
 const stepConfig = {
-  data_collection: { 
+  collect: { 
     label: '데이터 수집', 
     icon: Database, 
     description: 'MCP 서버에서 실시간 데이터 수집 중' 
   },
-  analysis: { 
+  analyze: { 
     label: '데이터 분석', 
     icon: Clock, 
     description: '수집된 데이터를 분석하여 패턴 파악 중' 
   },
-  decision: { 
+  decide: { 
     label: '의사결정', 
     icon: CheckCircle, 
     description: '분석 결과를 바탕으로 투자 의사결정 생성 중' 
   },
-  response: { 
+  respond: { 
     label: '답변 생성', 
     icon: CheckCircle, 
     description: 'AI가 사용자 맞춤 답변을 작성 중' 

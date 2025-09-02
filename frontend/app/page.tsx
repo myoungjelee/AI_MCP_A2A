@@ -164,7 +164,25 @@ export default function Home() {
                               content: `${data.step} 단계 진행 중...`,
                               analysisStep: {
                                 step: data.step,
-                                message: `${data.step} 단계 진행 중...`
+                                message: `${data.step} 단계 진행 중...`,
+                                status: data.status || 'running'
+                              }
+                            }
+                          : msg
+                      )
+                    )
+                    break
+
+                  case 'step_completed':
+                    setMessages(prev => 
+                      prev.map(msg => 
+                        msg.id === loadingMessage.id 
+                          ? { 
+                              ...msg, 
+                              analysisStep: {
+                                step: data.step,
+                                message: `${data.step} 단계 완료`,
+                                status: 'completed'
                               }
                             }
                           : msg
