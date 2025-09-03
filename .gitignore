@@ -24,6 +24,10 @@ data/
 
 node_modules/
 
+# Next.js build files
+frontend/.next/
+frontend/out/
+
 # AI Tools
 .cursor/
 .mcp.json

@@ -2,8 +2,8 @@
 
 Write-Host "🛑 AI MCP A2A Docker 서비스 중지..." -ForegroundColor Yellow
 
-# 프로젝트 루트로 이동
-Set-Location "../.."
+# Docker 폴더로 이동 (docker-compose.yml 위치)
+Set-Location ".."
 
 # 서비스 중지
 Write-Host "[INFO] 모든 서비스 중지 중..." -ForegroundColor Blue

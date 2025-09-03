@@ -2,11 +2,11 @@
 
 Write-Host "🚀 AI MCP A2A Docker 서비스 시작..." -ForegroundColor Green
 
-# 프로젝트 루트로 이동
-Set-Location "../.."
+# Docker 폴더로 이동 (docker-compose.yml 위치)
+Set-Location ".."
 
 # 환경 변수 파일 확인
-if (-not (Test-Path ".env")) {
+if (-not (Test-Path "../.env")) {
     Write-Host "[WARNING] .env 파일이 없습니다. 기본 환경 변수를 사용합니다." -ForegroundColor Yellow
     Write-Host "[INFO] 필요한 API 키들을 .env 파일에 설정하세요." -ForegroundColor Blue
 }

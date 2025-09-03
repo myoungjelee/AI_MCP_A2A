@@ -30,11 +30,11 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# 프로젝트 루트로 이동
-cd ../..
+# Docker 폴더로 이동 (docker-compose.yml 위치)
+cd ..
 
 # 환경 변수 파일 확인
-if [ ! -f ".env" ]; then
+if [ ! -f "../.env" ]; then
     log_warning ".env 파일이 없습니다. 기본 환경 변수를 사용합니다."
     log_info "필요한 API 키들을 .env 파일에 설정하세요."
 fi

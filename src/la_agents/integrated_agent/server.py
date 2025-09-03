@@ -49,9 +49,15 @@ app = FastAPI(
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 프로덕션에서는 특정 도메인만 허용
+    allow_origins=[
+        "http://localhost:3000",  # 로컬 개발
+        "http://localhost:3001",  # 로컬 Docker
+        "https://ai-mcp-demo.serveo.net",  # Serveo 프론트엔드
+        "https://*.vercel.app",  # Vercel 배포 도메인
+        "https://*.vercel.dev",  # Vercel 프리뷰 도메인
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

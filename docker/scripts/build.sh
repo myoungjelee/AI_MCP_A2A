@@ -36,9 +36,11 @@ if [ ! -f "../../.env" ]; then
     log_info "필요한 API 키들을 .env 파일에 설정하세요."
 fi
 
+# Docker 폴더로 이동 (docker-compose.yml 위치)
+cd ..
+
 # Docker Compose 빌드
 log_info "Docker Compose로 모든 서비스 빌드 중..."
-cd ../..
 
 # MCP 서버들 빌드
 log_info "MCP 서버 이미지 빌드 중..."

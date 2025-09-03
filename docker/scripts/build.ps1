@@ -8,8 +8,8 @@ if (-not (Test-Path "../../.env")) {
     Write-Host "[INFO] 필요한 API 키들을 .env 파일에 설정하세요." -ForegroundColor Blue
 }
 
-# 프로젝트 루트로 이동
-Set-Location "../.."
+# Docker 폴더로 이동 (docker-compose.yml 위치)
+Set-Location ".."
 
 # Docker Compose 빌드
 Write-Host "[INFO] Docker Compose로 모든 서비스 빌드 중..." -ForegroundColor Blue

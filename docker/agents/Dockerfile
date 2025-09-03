@@ -31,4 +31,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 8000
 
 # 통합 에이전트 실행
-CMD ["python", "-m", "src.la_agents.integrated_agent.integrated_agent"]
+CMD ["python", "-m", "src.la_agents.integrated_agent.server"]
