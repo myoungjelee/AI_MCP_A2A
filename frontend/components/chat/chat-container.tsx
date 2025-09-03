@@ -1,7 +1,9 @@
 'use client'
 
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { ArrowLeft } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { ChatInput } from './chat-input'
 import { ChatMessage } from './chat-message'
@@ -51,9 +53,7 @@ interface ChatContainerProps {
   onClear?: () => void
   onExport?: () => void
   onSettings?: () => void
-  quickSuggestions?: string[]
-  onSuggestionClick?: (suggestion: string) => void
-  showSuggestions?: boolean
+  onBackToHome?: () => void
 }
 
 export function ChatContainer({
@@ -69,9 +69,7 @@ export function ChatContainer({
   onClear,
   onExport,
   onSettings,
-  quickSuggestions = [],
-  onSuggestionClick,
-  showSuggestions = false
+  onBackToHome
 }: ChatContainerProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -87,66 +85,58 @@ export function ChatContainer({
       <div className="container mx-auto max-w-6xl py-6 px-4">
         <Card className="flex flex-col">
           <CardHeader className="border-b">
-            <CardTitle className="text-lg">AI 투자 분석가</CardTitle>
-            <CardDescription>실시간 종목 분석 서비스</CardDescription>
+            <div className="flex items-center gap-3">
+              {onBackToHome && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onBackToHome}
+                  className="p-1 h-8 w-8"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              )}
+              <div className="flex-1">
+                <CardTitle className="text-lg">AI 투자 분석가</CardTitle>
+                <CardDescription>실시간 종목 분석 서비스</CardDescription>
+              </div>
+            </div>
           </CardHeader>
 
           <CardContent className="p-0 flex-1">
             <div className="flex h-full flex-col">
-              {/* 빈 상태: 안내 + 추천 + MCP 상태 */}
-              {isEmpty ? (
-                <div className="px-6 py-4">
-                  <div className="max-w-4xl mx-auto space-y-6">
-                    {/* 메인 인사 섹션 */}
-                    <div className="text-center space-y-4">
-                      <div className="space-y-1">
+              {/* 메시지 영역 */}
+              <ScrollArea className="flex-1">
+                <div className="px-4">
+                  {isEmpty ? (
+                    <div className="flex flex-col items-center justify-center h-96 text-center space-y-4">
+                      <div className="space-y-2">
                         <h2 className="text-xl font-semibold">무엇을 도와드릴까요?</h2>
-                        <p className="text-muted-foreground text-sm">궁금한 종목이나 투자 관련 질문을 자유롭게 물어보세요.</p>
+                        <p className="text-muted-foreground text-sm">
+                          궁금한 종목이나 투자 관련 질문을 자유롭게 물어보세요.
+                        </p>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl mx-auto">
-                        {[
-                          "삼성전자 주가 전망은 어때?",
-                          "테슬라 투자해도 될까?",
-                          "비트코인 시장 상황은?",
-                          "애플 실적 분석해줘",
-                          "네이버 장기 투자 괜찮을까?",
-                          "ETF 분산투자 조합 추천",
-                          "미국 금리 인상 영향은?",
-                          "PER, PBR 쉽게 설명해줘"
-                        ].map((example, index) => (
-                          <button
-                            key={index}
-                            onClick={() => onSuggestionClick?.(example)}
-                            className="text-left p-3 bg-muted hover:bg-accent rounded-md transition-colors text-foreground/80 hover:text-foreground text-sm"
-                          >
-                            {example}
-                          </button>
-                        ))}
+                      {/* MCP 상태 */}
+                      <div className="mt-6">
+                        <MCPStatus className="w-full max-w-md" />
                       </div>
                     </div>
-
-                    {/* MCP 상태 섹션 */}
-                    <div className="flex justify-center">
-                      <MCPStatus className="w-full max-w-md" />
-                    </div>
-                  </div>
+                  ) : (
+                    <>
+                      {messages.map((message) => (
+                        <ChatMessage
+                          key={message.id}
+                          {...message}
+                          onCopy={onMessageCopy}
+                          onRegenerate={() => onMessageRegenerate?.(message.id)}
+                          onFeedback={(type) => onMessageFeedback?.(message.id, type)}
+                        />
+                      ))}
+                      <div ref={messagesEndRef} className="h-4" />
+                    </>
+                  )}
                 </div>
-              ) : (
-                <ScrollArea className="flex-1">
-                  <div className="px-4">
-                    {messages.map((message) => (
-                      <ChatMessage
-                        key={message.id}
-                        {...message}
-                        onCopy={onMessageCopy}
-                        onRegenerate={() => onMessageRegenerate?.(message.id)}
-                        onFeedback={(type) => onMessageFeedback?.(message.id, type)}
-                      />
-                    ))}
-                    <div ref={messagesEndRef} className="h-4" />
-                  </div>
-                </ScrollArea>
-              )}
+              </ScrollArea>
 
               {/* 입력창 - 콘텐츠 영역 하단에 고정 */}
               <div className="border-t">
@@ -156,9 +146,6 @@ export function ChatContainer({
                   onSend={onSend}
                   disabled={isLoading}
                   placeholder="메시지를 입력하세요..."
-                  quickSuggestions={quickSuggestions}
-                  onSuggestionClick={onSuggestionClick}
-                  showSuggestions={false}
                 />
               </div>
             </div>

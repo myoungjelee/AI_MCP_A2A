@@ -1,5 +1,6 @@
 """통합 에이전트 노드 구현 모듈"""
 
+import asyncio
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -158,20 +159,26 @@ class IntegratedAgentNodes:
             )
             new_state = update_current_step(new_state, "collect", selected_servers)
 
-            # 각 선택된 서버에서 데이터 수집
-            collected_data = {}
-            for server in selected_servers:
-                try:
-                    # 실제 MCP 서버 호출 (시뮬레이션)
-                    server_data = await self._collect_from_server(
-                        server, state["question"]
-                    )
-                    collected_data[server] = server_data
+            # 각 선택된 서버에서 데이터 수집 (병렬 처리)
+            # 모든 서버 동시 호출 태스크 생성
+            collect_tasks = [
+                self._collect_from_server(server, state["question"])
+                for server in selected_servers
+            ]
 
-                except Exception as e:
+            # 병렬 실행 (에러 발생해도 다른 서버는 계속 진행)
+            results = await asyncio.gather(*collect_tasks, return_exceptions=True)
+
+            # 결과 처리
+            collected_data = {}
+            for server, result in zip(selected_servers, results, strict=False):
+                if isinstance(result, Exception):
                     new_state = add_warning(
-                        new_state, f"{server} 서버에서 데이터 수집 실패: {str(e)}"
+                        new_state, f"{server} 서버에서 데이터 수집 실패: {str(result)}"
                     )
+                    collected_data[server] = {"error": str(result), "status": "failed"}
+                else:
+                    collected_data[server] = result
 
             # 수집된 데이터 저장
             new_state["collected_data"] = collected_data
@@ -203,22 +210,35 @@ class IntegratedAgentNodes:
             )
             new_state = update_current_step(new_state, "analyze", analysis_servers)
 
-            # 수집된 데이터 분석
+            # 수집된 데이터 분석 (병렬 처리)
             collected_data = state["collected_data"]
+
+            # 모든 분석 서버 동시 호출 태스크 생성
+            analysis_tasks = [
+                self._analyze_with_server(server, collected_data, state["question"])
+                for server in analysis_servers
+            ]
+
+            # 병렬 분석 실행
+            analysis_results_list = await asyncio.gather(
+                *analysis_tasks, return_exceptions=True
+            )
+
+            # 분석 결과 처리
             analysis_results = {}
-
-            for server in analysis_servers:
-                try:
-                    # 실제 분석 수행 (시뮬레이션)
-                    analysis_result = await self._analyze_with_server(
-                        server, collected_data, state["question"]
-                    )
-                    analysis_results[server] = analysis_result
-
-                except Exception as e:
+            for server, result in zip(
+                analysis_servers, analysis_results_list, strict=False
+            ):
+                if isinstance(result, Exception):
                     new_state = add_warning(
-                        new_state, f"{server} 서버 분석 실패: {str(e)}"
+                        new_state, f"{server} 서버 분석 실패: {str(result)}"
                     )
+                    analysis_results[server] = {
+                        "error": str(result),
+                        "status": "failed",
+                    }
+                else:
+                    analysis_results[server] = result
 
             # 분석 결과 통합
             integrated_analysis = await self._integrate_analysis_results(
@@ -357,20 +377,36 @@ class IntegratedAgentNodes:
             # 서버별 적절한 도구 선택
             tools_to_use = self._select_tools_for_server(server, question)
 
-            collected_data = {}
-            for tool_name in tools_to_use:
-                if tool_name in self.mcp_tools_dict:
-                    try:
-                        # 도구 실행
-                        tool_params = self._create_tool_params(tool_name, question)
-                        result = await self.mcp_tools_dict[tool_name].ainvoke(
-                            tool_params
-                        )
-                        collected_data[tool_name] = result
+            # 도구 병렬 실행
+            available_tools = [
+                tool for tool in tools_to_use if tool in self.mcp_tools_dict
+            ]
 
-                    except Exception as e:
-                        print(f"도구 {tool_name} 실행 실패: {e}")
-                        collected_data[tool_name] = {"error": str(e)}
+            if available_tools:
+                # 모든 도구 동시 실행 태스크 생성
+                tool_tasks = []
+                for tool_name in available_tools:
+                    tool_params = self._create_tool_params(tool_name, question)
+                    task = self.mcp_tools_dict[tool_name].ainvoke(tool_params)
+                    tool_tasks.append((tool_name, task))
+
+                # 병렬 실행
+                tool_results = await asyncio.gather(
+                    *[task for _, task in tool_tasks], return_exceptions=True
+                )
+
+                # 결과 처리
+                collected_data = {}
+                for (tool_name, _), result in zip(
+                    tool_tasks, tool_results, strict=False
+                ):
+                    if isinstance(result, Exception):
+                        print(f"도구 {tool_name} 실행 실패: {result}")
+                        collected_data[tool_name] = {"error": str(result)}
+                    else:
+                        collected_data[tool_name] = result
+            else:
+                collected_data = {}
 
             return {
                 "server": server,
