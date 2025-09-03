@@ -13,6 +13,7 @@ interface ChatInputProps {
   onSend: () => void
   placeholder?: string
   disabled?: boolean
+  isLoading?: boolean
   maxLength?: number
   quickSuggestions?: string[]
   onSuggestionClick?: (suggestion: string) => void
@@ -27,6 +28,7 @@ export function ChatInput({
   onSend,
   placeholder = "메시지를 입력하세요...",
   disabled = false,
+  isLoading = false,
   maxLength = 2000,
   quickSuggestions = [],
   onSuggestionClick,
@@ -89,9 +91,11 @@ export function ChatInput({
         <div className="px-3 py-2">
           <div className={cn(
             "relative flex items-end gap-2.5 p-3 border rounded-xl transition-all",
-            isFocused 
-              ? "border-gray-300 shadow-sm bg-white" 
-              : "border-gray-200 bg-white"
+            isLoading
+              ? "border-blue-400 bg-blue-50"
+              : (isFocused 
+                  ? "border-gray-300 shadow-sm bg-white" 
+                  : "border-gray-200 bg-white")
           )}>
             {/* 텍스트 입력 */}
             <div className="flex-1 relative">
@@ -142,9 +146,11 @@ export function ChatInput({
 
           {/* 도움말 텍스트 */}
           <div className="text-center mt-1">
-            <div className="text-[10px] text-gray-500">
-              Enter로 전송, Shift+Enter로 줄바꿈
-            </div>
+            {isLoading ? (
+              <div className="text-[10px] text-blue-600">분석 중...</div>
+            ) : (
+              <div className="text-[10px] text-gray-500">Enter로 전송, Shift+Enter로 줄바꿈</div>
+            )}
           </div>
         </div>
       </div>

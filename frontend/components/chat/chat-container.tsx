@@ -145,6 +145,7 @@ export function ChatContainer({
                   onChange={onInputChange}
                   onSend={onSend}
                   disabled={isLoading}
+                  isLoading={isLoading}
                   placeholder="메시지를 입력하세요..."
                 />
               </div>

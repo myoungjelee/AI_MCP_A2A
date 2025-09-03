@@ -3,7 +3,7 @@
 import { ChatContainer } from '@/components/chat/chat-container'
 import { useInvestmentValidation } from '@/hooks/useInvestmentValidation'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 
 interface Message {
   id: string
@@ -49,6 +49,7 @@ function ChatPageContent() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const isSendingRef = useRef(false)
   const { validateQuestion } = useInvestmentValidation()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -69,8 +70,9 @@ function ChatPageContent() {
 
   // 자동 질문 실행 함수
   const handleAutoSend = async (question: string) => {
-    if (!question.trim() || isLoading) return
+    if (!question.trim() || isLoading || isSendingRef.current) return
 
+    isSendingRef.current = true
     const inputText = question.trim()
     
     // 먼저 투자 관련 질문인지 검증
@@ -99,7 +101,11 @@ function ChatPageContent() {
     setIsLoading(true)
 
     // 실제 분석 로직은 기존 handleSend와 동일
-    await executeAnalysis(inputText, isInvestmentRelated, loadingMessage)
+    try {
+      await executeAnalysis(inputText, isInvestmentRelated, loadingMessage)
+    } finally {
+      isSendingRef.current = false
+    }
   }
 
   // 분석 실행 로직을 분리
@@ -123,7 +129,8 @@ function ChatPageContent() {
       }
 
       // 투자 관련 질문만 백엔드로 분석 요청
-      const response = await fetch('http://localhost:8000/analyze/stream', {
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+      const response = await fetch(`${apiBaseUrl}/analyze/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -257,8 +264,9 @@ function ChatPageContent() {
   }
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return
+    if (!input.trim() || isLoading || isSendingRef.current) return
 
+    isSendingRef.current = true
     const inputText = input.trim()
     
     // 먼저 투자 관련 질문인지 검증
@@ -287,7 +295,11 @@ function ChatPageContent() {
     setIsLoading(true)
 
     // 분석 실행
-    await executeAnalysis(inputText, isInvestmentRelated, loadingMessage)
+    try {
+      await executeAnalysis(inputText, isInvestmentRelated, loadingMessage)
+    } finally {
+      isSendingRef.current = false
+    }
   }
 
 

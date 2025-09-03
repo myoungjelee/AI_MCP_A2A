@@ -119,15 +119,6 @@ export default function Home() {
                   분석 시작
                 </Button>
               </div>
-              <div className="mt-4">
-                <Button 
-                  variant="outline" 
-                  onClick={handleStartChat}
-                  className="w-full"
-                >
-                  바로 채팅 시작하기
-                </Button>
-              </div>
             </CardContent>
           </Card>
 
