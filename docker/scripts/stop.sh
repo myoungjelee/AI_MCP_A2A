@@ -30,8 +30,8 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Docker 폴더로 이동 (docker-compose.yml 위치)
-cd ..
+# 프로젝트 루트로 이동
+cd ../..
 
 # 서비스 중지
 log_info "모든 서비스 중지 중..."

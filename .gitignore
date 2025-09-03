@@ -32,7 +32,82 @@ frontend/out/
 .cursor/
 .mcp.json
 
-# Documentation and Learning Guides
+# Documentation and Learning Guides (민감한 정보 포함)
 docs/
 **/LEARNING_GUIDE.md
 LEARNING_GUIDE.md
+LEARNING_GUIDE_COMPLETE.md
+FASTMCP_GUIDE.md
+LANGGRAPH_GUIDE.md
+LANGCHAIN_GUIDE.md
+INTERVIEW_PREPARATION.md
+
+# 개인 보안 및 설정 파일
+startup.bat
+*.bat
+*.ps1
+config.yml
+*.json
+*.db
+*.sqlite
+*.sqlite3
+
+# 클라우드 인증 및 설정
+.cloudflared/
+cloudflared.exe
+*.pem
+*.crt
+*.key
+*.credentials
+*.token
+
+# API 키 및 민감한 설정
+.env.local
+.env.production
+.env.development
+secrets.json
+credentials.json
+auth.json
+
+# 로그 파일
+*.log
+logs/
+log/
+
+# 백업 파일
+*.backup
+*.bak
+*.old
+*~
+
+# 개발 환경 설정
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# 시스템 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 임시 파일
+tmp/
+temp/
+cache/
+.cache/
+
+# 데이터베이스 파일
+checkpoints.db
+chat_history.db
+*.db-journal
+
+# Docker 관련 민감한 파일
+docker-compose.override.yml
+.dockerignore
+
+# 면접 및 개인 정보
+interview_*
+*_interview_*
+personal_*
+private_*
