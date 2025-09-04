@@ -111,3 +111,22 @@ interview_*
 *_interview_*
 personal_*
 private_*
+
+# 사용하지 않는 A2A 관련 폴더들
+src/a2a_agents/
+src/a2a_integration/
+
+# la_agents에서 사용하지 않는 파일들
+src/la_agents/analysis_agent_a2a.py
+src/la_agents/data_collector_agent_a2a.py
+src/la_agents/portfolio_agent.py
+src/la_agents/stock_recommendation_agent.py
+src/la_agents/supervisor_agent.py
+src/la_agents/prompts.py
+src/la_agents/util.py
+src/la_agents/base/a2a_interface.py
+src/la_agents/base/base_graph_agent.py
+src/la_agents/base/base_graph_state.py
+src/la_agents/base/error_handling.py
+src/la_agents/base/interrupt_manager.py
+src/la_agents/base/mcp_loader.py
