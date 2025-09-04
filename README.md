@@ -14,7 +14,15 @@
 
 🚀 **Live Demo**: [https://ai-mcp-a2a-frontend.vercel.app](https://ai-mcp-a2a-frontend.vercel.app)
 
-> **주의**: 백엔드는 로컬에서 동적으로 실행되므로, 데모 접속 시간에 따라 사용 가능 여부가 달라질 수 있습니다.
+> **주의**: ⚡️ **데모 접근 방식**
+
+- **프론트엔드**: Vercel에 배포되어 항상 접속 가능한 고정 URL 제공
+- **백엔드**: 보안상의 이유로 외부 공개는 하지 않음
+  - 초기에는 Pinggy(터널링 서비스)를 사용해 외부 접속을 시도했으나,  
+    **포트포워딩 방식 특성상 보안 취약점**이 있어 사용하지 않음
+  - 현재는 **외부에서는 접속 불가**, 시연은 **로컬 환경에서만 가능**
+- 추후에는 **eu.org 무료 도메인 + Cloudflare 프록시**를 적용하여  
+  안전한 방식으로 원격 접속이 가능하도록 개선할 예정입니다.
 
 ## 🎯 프로젝트 목표
 
@@ -28,6 +36,40 @@
 
 ## 🏗️ 시스템 아키텍처
 
+```mermaid
+flowchart TD
+    %% 사용자 입력
+    A([사용자 질문]) --> B[Next.js 프론트엔드]
+    B --> C[FastAPI 백엔드]
+    C --> D[LangGraph 에이전트]
+
+    %% LangGraph 처리 단계
+    D --> E{투자 질문 검증}
+    E --> F[데이터 수집 단계]
+
+    %% MCP 서버들
+    F --> G[Macroeconomic MCP]
+    F --> H[Stock Analysis MCP]
+    F --> I[Naver News MCP]
+    F --> J[Tavily Search MCP]
+    F --> K[Kiwoom MCP]
+    F --> L[Financial Analysis MCP]
+
+    %% 데이터 통합
+    G --> M[(데이터 통합)]
+    H --> M
+    I --> M
+    J --> M
+    K --> M
+    L --> M
+
+    %% AI 분석 및 응답
+    M --> N[Ollama LLM 분석]
+    N --> O[최종 응답 생성]
+    O --> P[프론트엔드 결과 표시]
+    P --> Q([사용자에게 응답])
+```
+
 ```
 🌐 Vercel Frontend (CDN)
     ↓ HTTPS API 호출
@@ -40,9 +82,26 @@
     ├── 📰 네이버뉴스 MCP 서버 (FastMCP)
     ├── 🔍 Tavily 검색 MCP 서버 (FastMCP)
     ├── 💹 키움 API MCP 서버 (FastMCP)
-    ├── 🧠 Ollama (로컬 LLM - llama3.1:8b)
+    ├── 🧠 Ollama (로컬 LLM - gpt-oss:20b)
     └── 📊 모니터링 & 로깅
 ```
+
+### 📡 MCP 서버 (FastMCP 기반)
+
+- **Macroeconomic** – 거시경제 데이터 (ECOS + FRED)
+- **Stock Analysis** – 주가/지표 분석
+- **Naver News** – 뉴스 크롤링 (네이버 API)
+- **Tavily Search** – 웹 검색 (Tavily API)
+- **Kiwoom** – 증권사 API 연동 (키움 OpenAPI)
+- **Financial Analysis** – 재무 지표 분석 (DART + ECOS)
+
+> 🔌 **데이터 소스**
+>
+> - ECOS, FRED → 거시경제
+> - DART, ECOS → 재무분석
+> - 키움 OpenAPI → 실시간 시세
+> - 네이버 OpenAPI → 뉴스
+> - Tavily API → 검색
 
 ## 💻 기술 스택
 
