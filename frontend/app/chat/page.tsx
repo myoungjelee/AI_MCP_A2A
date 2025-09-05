@@ -135,12 +135,7 @@ function ChatPageContent() {
       }
 
       // 투자 관련 질문만 백엔드로 분석 요청
-      // 환경별 API URL 설정
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 
-        (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : 'https://zhapp-175-113-49-154.a.free.pinggy.link')
-      console.log('API Base URL:', apiBaseUrl) // 디버깅용
-      console.log('Environment:', process.env.NODE_ENV) // 환경 확인
-      console.log('All env vars:', process.env) // 모든 환경변수 확인
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
       const response = await fetch(`${apiBaseUrl}/analyze/stream`, {
         method: 'POST',
         headers: {
