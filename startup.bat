@@ -13,6 +13,7 @@ timeout /t 10
 
 :start_tunnels
 echo [2/2] Starting Pinggy Tunnel...
+REM TODO: eu.org 도메인 나오면 Cloudflare Tunnel로 전환
 
 echo Pinggy Public URL: https://uexkl-175-113-49-154.a.free.pinggy.link
 echo Access Token: z0Mt4RGjye (starting in background...)

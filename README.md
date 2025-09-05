@@ -16,7 +16,7 @@
 🔗 **Live Demo**: [https://ai-mcp-a2a-frontend.vercel.app](https://ai-mcp-a2a-frontend.vercel.app)
 
 - **프론트엔드**: Vercel 배포 (항상 접근 가능한 고정 URL 제공)
-- **백엔드**: 현재는 외부 비공개 (로컬 Docker 환경에서만 시연 가능)
+- **백엔드**: ngrok 터널링으로 외부 접근 가능 (개발/테스트용)
 - **향후 계획**: eu.org 무료 도메인 + Cloudflare 프록시 적용 예정
 
 ---
@@ -70,7 +70,7 @@ flowchart TD
 - **Domain**: eu.org 무료 도메인 발급 + Cloudflare DNS 관리
 - **Backend**: 로컬 Docker Compose (LangGraph + MCP 서버 + Ollama)
 - **CI/CD**: GitHub → Vercel 자동배포
-- **보안**: Pinggy(터널링) 대신 Cloudflare 프록시로 전환 계획
+- **보안**: ngrok 터널링 + Cloudflare 프록시로 전환 계획
 
 ---
 
@@ -78,7 +78,7 @@ flowchart TD
 
 - **Backend**: LangGraph, FastMCP, FastAPI, Docker
 - **Frontend**: Next.js 15, TypeScript, TailwindCSS
-- **Infra**: Vercel, Cloudflare, Docker Compose
+- **Infra**: Vercel, ngrok, Cloudflare, Docker Compose
 - **LLM**: Ollama (로컬 LLM, gpt-oss:20b)
 
 ---
@@ -108,7 +108,7 @@ AI_MCP_A2A/
 
 - ✅ 6개 MCP 서버 개발
 - ✅ Docker 컨테이너 7개 오케스트레이션
-- ✅ Vercel + Cloudflare + Docker 기반 운영 환경
+- ✅ Vercel + ngrok + Cloudflare + Docker 기반 운영 환경
 - ✅ 실시간 스트리밍 기반 LangGraph 에이전트
 
 ---

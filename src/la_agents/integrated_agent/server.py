@@ -52,7 +52,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3001",  # 로컬 개발 프론트엔드
         "https://ai-mcp-a2a.vercel.app",  # Vercel 배포 도메인
-        "https://*.a.free.pinggy.link",  # Pinggy 터널 (무료 계정 시간제한으로 URL 자주 변경됨)
+        "https://*.ngrok.io",  # TODO: eu.org 도메인 나오면 Cloudflare Tunnel로 전환
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],

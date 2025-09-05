@@ -135,6 +135,7 @@ function ChatPageContent() {
       }
 
       // 투자 관련 질문만 백엔드로 분석 요청
+      // TODO: eu.org 도메인 나오면 Cloudflare Tunnel URL로 변경
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
       const response = await fetch(`${apiBaseUrl}/analyze/stream`, {
         method: 'POST',
@@ -143,7 +144,7 @@ function ChatPageContent() {
         },
         body: JSON.stringify({
           question: inputText,
-          ...(sessionId && { session_id: sessionId })  // sessionId가 있을 때만 포함
+          ...(sessionId && { session_id: sessionId })  // sessionId가 있을 때만 포함 
         })
       })
 
