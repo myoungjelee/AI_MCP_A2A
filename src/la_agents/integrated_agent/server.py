@@ -278,11 +278,26 @@ async def get_mcp_servers():
 
 @app.get("/session/{session_id}/history")
 async def get_session_history(session_id: str):
-    """세션 대화 기록 조회"""
+    """세션 대화 기록 조회 (LangGraph 표준)"""
     try:
         agent = await get_agent()
         history = agent.get_conversation_history(session_id)
-        return history
+
+        if history.get("exists"):
+            return {
+                "success": True,
+                "session_id": session_id,
+                "messages": history.get("messages", []),
+                "message_count": len(history.get("messages", [])),
+            }
+        else:
+            return {
+                "success": False,
+                "session_id": session_id,
+                "message": "대화 기록이 없습니다.",
+                "messages": [],
+                "message_count": 0,
+            }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -290,7 +305,7 @@ async def get_session_history(session_id: str):
 
 @app.delete("/session/{session_id}/history")
 async def clear_session_history(session_id: str):
-    """세션 대화 기록 삭제"""
+    """세션 대화 기록 삭제 (LangGraph 표준)"""
     try:
         agent = await get_agent()
         success = agent.clear_conversation_history(session_id)
@@ -299,6 +314,7 @@ async def clear_session_history(session_id: str):
             "success": success,
             "session_id": session_id,
             "message": "대화 기록이 삭제되었습니다." if success else "삭제 실패",
+            "note": "LangGraph MemorySaver는 자동으로 메모리를 관리합니다.",
         }
 
     except Exception as e:
@@ -310,11 +326,17 @@ async def clear_session_history(session_id: str):
 
 @app.get("/debug/state/{session_id}")
 async def debug_get_state(session_id: str):
-    """디버그: 세션 상태 조회"""
+    """디버그: 세션 상태 조회 (LangGraph 표준)"""
     try:
         agent = await get_agent()
-        state = agent.get_conversation_history(session_id)
-        return {"session_id": session_id, "state": state, "debug": True}
+        history = agent.get_conversation_history(session_id)
+
+        return {
+            "session_id": session_id,
+            "history": history,
+            "debug": True,
+            "note": "LangGraph MemorySaver에서 messages 채널을 통해 대화 히스토리를 관리합니다.",
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

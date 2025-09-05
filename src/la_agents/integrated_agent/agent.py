@@ -48,30 +48,6 @@ class IntegratedAgent:
 
         return workflow
 
-    async def _load_conversation_history(self, session_id: str) -> List[Dict[str, str]]:
-        """세션의 대화 히스토리 로드"""
-        try:
-            config = {"configurable": {"thread_id": session_id}}
-            checkpoint = self.memory.get(config)
-
-            if checkpoint and "channel_values" in checkpoint:
-                # LangGraph 체크포인트에서 메시지 히스토리 추출
-                channel_values = checkpoint["channel_values"]
-                if "messages" in channel_values:
-                    messages = channel_values["messages"]
-                    # LangGraph 메시지를 일반 형식으로 변환
-                    history = []
-                    for msg in messages:
-                        if hasattr(msg, "content") and hasattr(msg, "type"):
-                            role = "user" if msg.type == "human" else "assistant"
-                            history.append({"role": role, "content": msg.content})
-                    return history
-
-            return []
-        except Exception as e:
-            print(f"대화 히스토리 로드 실패: {e}")
-            return []
-
     async def process_question(
         self, question: str, session_id: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -93,11 +69,6 @@ class IntegratedAgent:
 
             # 초기 상태 생성
             initial_state = create_initial_state(question, session_id)
-
-            # 이전 대화 히스토리 로드
-            if session_id:
-                conversation_history = await self._load_conversation_history(session_id)
-                initial_state["conversation_history"] = conversation_history
 
             # 워크플로우 실행
             config = {"configurable": {"thread_id": session_id or "default"}}
@@ -161,11 +132,6 @@ class IntegratedAgent:
 
             # 초기 상태 생성
             initial_state = create_initial_state(question, session_id)
-
-            # 이전 대화 히스토리 로드
-            if session_id:
-                conversation_history = await self._load_conversation_history(session_id)
-                initial_state["conversation_history"] = conversation_history
 
             # 워크플로우 스트리밍 실행
             config = {"configurable": {"thread_id": session_id or "default"}}
@@ -248,31 +214,33 @@ class IntegratedAgent:
             }
 
     def get_conversation_history(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """세션의 대화 기록 조회"""
+        """세션의 대화 기록 조회 (LangGraph 표준)"""
         try:
             # MemorySaver에서 세션 기록 조회
             config = {"configurable": {"thread_id": session_id}}
-
-            # 체크포인트에서 마지막 상태 가져오기
             checkpoint = self.memory.get(config)
-            if checkpoint:
-                return {
-                    "session_id": session_id,
-                    "last_state": checkpoint,
-                    "exists": True,
-                }
-            else:
-                return {"session_id": session_id, "exists": False}
+
+            if checkpoint and "channel_values" in checkpoint:
+                # messages 채널에서 대화 히스토리 추출
+                channel_values = checkpoint["channel_values"]
+                if "messages" in channel_values:
+                    messages = channel_values["messages"]
+                    return {
+                        "session_id": session_id,
+                        "messages": messages,
+                        "exists": True,
+                    }
+
+            return {"session_id": session_id, "exists": False}
 
         except Exception as e:
             return {"session_id": session_id, "error": str(e), "exists": False}
 
     def clear_conversation_history(self, session_id: str) -> bool:
-        """세션의 대화 기록 삭제"""
+        """세션의 대화 기록 삭제 (LangGraph 표준)"""
         try:
-            # 메모리에서 세션 기록 삭제
-            # MemorySaver에는 직접적인 삭제 메서드가 없으므로
-            # 새로운 워크플로우 앱을 다시 컴파일하여 메모리 초기화
+            # LangGraph에서는 새로운 워크플로우 앱을 다시 컴파일하여 메모리 초기화
+            # 또는 새로운 thread_id를 사용하여 세션 분리
             return True
 
         except Exception:

@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_ollama import ChatOllama
 
@@ -308,12 +308,14 @@ class IntegratedAgentNodes:
 
             # 최종 응답 생성
             final_response = await self._generate_final_response(
+                new_state,
                 state["question"],
                 state["analysis_result"],
                 state["collected_data"],
                 state["key_insights"],
             )
 
+            # 응답을 상태에 저장
             new_state["final_response"] = final_response
             new_state["response_type"] = "analysis"
 
@@ -528,6 +530,7 @@ class IntegratedAgentNodes:
 
     async def _generate_final_response(
         self,
+        state: IntegratedAgentState,
         question: str,
         analysis: Dict[str, Any],
         data: Dict[str, Any],
@@ -558,20 +561,17 @@ class IntegratedAgentNodes:
         try:
             print(f"LLM 호출 시작: model={self.model_name}")
 
-            # 메시지 구성 (대화 히스토리 포함)
-            messages = [
-                SystemMessage(
-                    content="당신은 전문 투자 분석가입니다. 마크다운 형식으로 체계적이고 이해하기 쉬운 투자 분석 보고서를 작성하세요. 이전 대화 맥락을 고려하여 자연스럽게 답변하세요."
-                ),
-            ]
+            # LangGraph 표준 메시지 구성 (이전 대화 자동 포함)
+            messages = state.get("messages", [])
 
-            # 이전 대화 히스토리 추가
-            conversation_history = state.get("conversation_history", [])
-            for msg in conversation_history:
-                if msg["role"] == "user":
-                    messages.append(HumanMessage(content=msg["content"]))
-                elif msg["role"] == "assistant":
-                    messages.append(SystemMessage(content=msg["content"]))
+            # 시스템 메시지가 없으면 추가
+            if not messages or not isinstance(messages[0], SystemMessage):
+                messages.insert(
+                    0,
+                    SystemMessage(
+                        content="당신은 전문 투자 분석가입니다. 마크다운 형식으로 체계적이고 이해하기 쉬운 투자 분석 보고서를 작성하세요."
+                    ),
+                )
 
             # 현재 질문 추가
             messages.append(HumanMessage(content=response_prompt))
@@ -581,16 +581,11 @@ class IntegratedAgentNodes:
 
             print(f"LLM 호출 성공: {len(response.content)} 문자")
 
-            # 대화 히스토리에 현재 대화 추가
-            response_content = response.content
-            state["conversation_history"].append(
-                {"role": "user", "content": state["question"]}
-            )
-            state["conversation_history"].append(
-                {"role": "assistant", "content": response_content}
-            )
+            # 응답을 메시지 히스토리에 추가 (LangGraph 표준)
+            new_state = state.copy()
+            new_state["messages"] = messages + [AIMessage(content=response.content)]
 
-            return response_content
+            return response.content
 
         except Exception as e:
             print(f"LLM 호출 실패: {type(e).__name__}: {e}")
@@ -602,7 +597,16 @@ class IntegratedAgentNodes:
             import traceback
 
             print(f"Full traceback: {traceback.format_exc()}")
-            raise
+
+            # 에러 상태 반환
+            error_state = add_error(
+                state, f"응답 생성 중 오류: {str(e)}", "RESPONSE_ERROR"
+            )
+            error_state["final_response"] = (
+                "응답 생성 중 오류가 발생했습니다. 다시 시도해주세요."
+            )
+            error_state["response_type"] = "error"
+            return error_state
 
     def _select_tools_for_server(self, server: str, question: str) -> List[str]:
         """서버별 적절한 도구 선택"""

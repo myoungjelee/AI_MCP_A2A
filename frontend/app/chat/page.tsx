@@ -48,7 +48,13 @@ function ChatPageContent() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    // 새로고침 시에도 세션 ID 유지
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('chat_session_id') || null
+    }
+    return null
+  })
   const isSendingRef = useRef(false)
   const { validateQuestion } = useInvestmentValidation()
   const router = useRouter()
@@ -130,6 +136,7 @@ function ChatPageContent() {
 
       // 투자 관련 질문만 백엔드로 분석 요청
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+      console.log('API Base URL:', apiBaseUrl) // 디버깅용
       const response = await fetch(`${apiBaseUrl}/analyze/stream`, {
         method: 'POST',
         headers: {
@@ -137,7 +144,7 @@ function ChatPageContent() {
         },
         body: JSON.stringify({
           question: inputText,
-          session_id: sessionId || undefined
+          ...(sessionId && { session_id: sessionId })  // sessionId가 있을 때만 포함
         })
       })
 
@@ -172,6 +179,8 @@ function ChatPageContent() {
                   case 'start':
                     if (!sessionId && data.session_id) {
                       setSessionId(data.session_id)
+                      // 로컬 스토리지에 저장하여 새로고침 시에도 유지
+                      localStorage.setItem('chat_session_id', data.session_id)
                     }
                     break
 
@@ -304,11 +313,12 @@ function ChatPageContent() {
 
 
 
-  // 새 채팅 시작
+  // 새 대화 시작
   const handleNewChat = () => {
     setMessages([])
     setInput('')
     setSessionId(null)
+    localStorage.removeItem('chat_session_id')
     // URL에서 쿼리 파라미터 제거
     router.replace('/chat')
   }
@@ -318,6 +328,7 @@ function ChatPageContent() {
     if (window.confirm('대화 기록을 모두 지우시겠습니까?')) {
       setMessages([])
       setSessionId(null)
+      localStorage.removeItem('chat_session_id')
     }
   }
 
@@ -371,6 +382,7 @@ function ChatPageContent() {
   const handleMessageFeedback = (messageId: string, type: 'positive' | 'negative') => {
     console.log(`메시지 ${messageId}에 ${type} 피드백`)
   }
+
 
 
 
