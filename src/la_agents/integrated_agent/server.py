@@ -52,7 +52,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3001",  # 로컬 개발 프론트엔드
         "https://ai-mcp-a2a.vercel.app",  # Vercel 배포 도메인
-        "https://zimjk-175-113-49-154.a.free.pinggy.link",  # 현재 Pinggy 터널
+        "https://zhapp-175-113-49-154.a.free.pinggy.link",  # 현재 Pinggy 터널
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -135,6 +135,8 @@ async def analyze_question(request: AnalyzeRequest):
 async def stream_analyze_question(request: AnalyzeRequest):
     """투자 질문 분석 (스트리밍 방식)"""
     try:
+        # 요청 로깅 추가
+        print(f"🔍 스트림 분석 요청: question='{request.question}', session_id='{request.session_id}'")
         agent = await get_agent()
 
         # 세션 ID 생성 (없는 경우)

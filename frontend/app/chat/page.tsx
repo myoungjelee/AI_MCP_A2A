@@ -137,7 +137,7 @@ function ChatPageContent() {
         },
         body: JSON.stringify({
           question: inputText,
-          session_id: sessionId || undefined
+          ...(sessionId && { session_id: sessionId })
         })
       })
 
