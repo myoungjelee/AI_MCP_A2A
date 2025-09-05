@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # ===== MCP 서버들 =====
 
@@ -28,6 +26,12 @@ services:
       - ai_mcp_network
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8042/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # 2. 재무 분석 시스템 MCP 서버
   financial_analysis_mcp:
@@ -53,6 +57,12 @@ services:
       - ai_mcp_network
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8040/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # 3. 주식 분석 시스템 MCP 서버
   stock_analysis_mcp:
@@ -76,6 +86,12 @@ services:
       - ai_mcp_network
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8052/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # 4. 네이버 뉴스 수집 시스템 MCP 서버
   naver_news_mcp:
@@ -101,6 +117,12 @@ services:
       - ai_mcp_network
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8051/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # 5. Tavily 검색 시스템 MCP 서버
   tavily_search_mcp:
@@ -125,6 +147,12 @@ services:
       - ai_mcp_network
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8053/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # 6. 키움 API 연동 시스템 MCP 서버
   kiwoom_mcp:
@@ -150,6 +178,12 @@ services:
       - ai_mcp_network
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # ===== 통합 에이전트 =====
 
@@ -165,8 +199,6 @@ services:
       - AGENT_PORT=8000
       - AGENT_HOST=0.0.0.0
       - MCP_SERVERS=macroeconomic,financial_analysis,stock_analysis,naver_news,tavily_search,kiwoom
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       # Ollama (로컬 LLM) 연결 설정 - Docker에서 호스트로 연결
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
@@ -179,13 +211,26 @@ services:
     networks:
       - ai_mcp_network
     depends_on:
-      - macroeconomic_mcp
-      - financial_analysis_mcp
-      - stock_analysis_mcp
-      - naver_news_mcp
-      - tavily_search_mcp
-      - kiwoom_mcp
-      - redis
+      macroeconomic_mcp:
+        condition: service_healthy
+      financial_analysis_mcp:
+        condition: service_healthy
+      stock_analysis_mcp:
+        condition: service_healthy
+      naver_news_mcp:
+        condition: service_healthy
+      tavily_search_mcp:
+        condition: service_healthy
+      kiwoom_mcp:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # ===== 인프라 서비스들 =====
 
@@ -201,6 +246,12 @@ services:
     restart: unless-stopped
     networks:
       - ai_mcp_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # 9. PostgreSQL (데이터베이스)
   postgres:
@@ -217,49 +268,17 @@ services:
     restart: unless-stopped
     networks:
       - ai_mcp_network
-
-  # 10. Prometheus (모니터링)
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: ai_mcp_prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./docker/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-      - "--storage.tsdb.retention.time=200h"
-      - "--web.enable-lifecycle"
-    restart: unless-stopped
-    networks:
-      - ai_mcp_network
-
-  # 11. Grafana (시각화)
-  grafana:
-    image: grafana/grafana:latest
-    container_name: ai_mcp_grafana
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    volumes:
-      - grafana_data:/var/lib/grafana
-    restart: unless-stopped
-    networks:
-      - ai_mcp_network
-    depends_on:
-      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_mcp_user -d ai_mcp_a2a"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 # 볼륨 정의
 volumes:
   redis_data:
   postgres_data:
-  prometheus_data:
-  grafana_data:
 
 # 네트워크 정의
 networks:

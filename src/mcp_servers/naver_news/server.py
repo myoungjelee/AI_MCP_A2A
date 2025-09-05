@@ -214,9 +214,6 @@ def main():
     server = NaverNewsMCPServer(port=8051, debug=True)
 
     try:
-        # 서버 시작 준비
-        asyncio.run(server.start_server())
-
         # FastMCP 서버 실행 (HTTP 모드)
         server.run_server()
 

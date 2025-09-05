@@ -143,7 +143,9 @@ class StockAnalysisMCPServer(BaseMCPServer):
                 """서버 메트릭 조회"""
                 return self.get_metrics()
 
-            self.logger.info("Stock analysis MCP tools registered successfully")
+            self.logger.info(
+                "Stock analysis MCP tools and HTTP endpoints registered successfully"
+            )
 
         except Exception as e:
             self.logger.error(f"Failed to register MCP tools: {e}")
@@ -158,9 +160,6 @@ def main():
     server = StockAnalysisMCPServer(port=8052, debug=True)
 
     try:
-        # 서버 시작 준비
-        asyncio.run(server.start_server())
-
         # FastMCP 서버 실행 (HTTP 모드)
         server.run_server()
 

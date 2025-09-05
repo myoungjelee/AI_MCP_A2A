@@ -129,7 +129,7 @@ function ChatPageContent() {
       }
 
       // 투자 관련 질문만 백엔드로 분석 요청
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
       const response = await fetch(`${apiBaseUrl}/analyze/stream`, {
         method: 'POST',
         headers: {

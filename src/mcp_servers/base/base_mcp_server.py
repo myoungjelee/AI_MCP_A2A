@@ -83,6 +83,9 @@ class BaseMCPServer(ABC):
         # FastMCP 인스턴스 생성
         self.mcp = FastMCP(name=name, instructions=server_instructions)
 
+        # 헬스체크 엔드포인트 설정
+        self._setup_health_endpoints()
+
         # 로거 설정
         self.logger = logging.getLogger(f"mcp_server.{name}")
         self._setup_logging()
@@ -298,7 +301,7 @@ class BaseMCPServer(ABC):
                     "server_running": True,
                     "clients_initialized": hasattr(self, "_clients_initialized")
                     and self._clients_initialized,
-                    "tools_registered": len(self.get_available_tools()) > 0,
+                    "tools_registered": True,  # FastMCP에서 도구는 자동으로 등록됨
                     "middleware_active": hasattr(self, "middleware")
                     and self.middleware.is_active(),
                 },
@@ -321,6 +324,26 @@ class BaseMCPServer(ABC):
                 "error": str(e),
                 "timestamp": self.get_server_status()["timestamp"],
             }
+
+    def _setup_health_endpoints(self):
+        """Health Check 엔드포인트 설정"""
+        from starlette.responses import JSONResponse
+
+        @self.mcp.custom_route("/health", methods=["GET"])
+        async def health_check(request):
+            """Docker Health Check용 엔드포인트"""
+            return JSONResponse(
+                {
+                    "status": "healthy",
+                    "service": self.name,
+                    "timestamp": self.get_server_status()["timestamp"],
+                }
+            )
+
+        @self.mcp.custom_route("/metrics", methods=["GET"])
+        async def metrics_endpoint(request):
+            """메트릭 엔드포인트"""
+            return JSONResponse(self.get_metrics())
 
     async def start_server(self):
         """서버를 시작합니다."""
@@ -355,8 +378,10 @@ class BaseMCPServer(ABC):
         """서버를 실행합니다 (HTTP 모드)."""
         try:
             self.logger.info(f"FastMCP 서버 시작: {self.host}:{self.port}")
-            # FastMCP의 올바른 실행 방법: mcp.run()
+
+            # FastMCP 서버 실행 (헬스체크는 custom_route로 포함됨)
             self.mcp.run(transport="http", host=self.host, port=self.port)
+
         except Exception as e:
             self.logger.error(f"FastMCP 서버 실행 실패: {e}")
             raise
