@@ -12,6 +12,11 @@ class IntegratedAgentState(TypedDict):
     session_id: Optional[str]  # 세션 ID
     timestamp: datetime  # 질문 시간
 
+    # === 대화 히스토리 ===
+    conversation_history: List[
+        Dict[str, str]
+    ]  # [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+
     # === 투자 질문 검증 ===
     is_investment_related: bool  # 투자 관련 질문인지 여부
     validation_confidence: float  # 검증 신뢰도 (0.0-1.0)
@@ -69,6 +74,8 @@ def create_initial_state(
         question=question,
         session_id=session_id,
         timestamp=datetime.now(),
+        # 대화 히스토리 초기값
+        conversation_history=[],  # 빈 히스토리로 시작
         # 검증 초기값 (검증 과정 제거로 기본값으로 설정)
         is_investment_related=True,  # 모든 질문을 처리하도록 설정
         validation_confidence=1.0,

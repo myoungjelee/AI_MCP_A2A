@@ -135,8 +135,6 @@ async def analyze_question(request: AnalyzeRequest):
 async def stream_analyze_question(request: AnalyzeRequest):
     """투자 질문 분석 (스트리밍 방식)"""
     try:
-        # 요청 로깅 추가
-        print(f"🔍 스트림 분석 요청: question='{request.question}', session_id='{request.session_id}'")
         agent = await get_agent()
 
         # 세션 ID 생성 (없는 경우)

@@ -8,7 +8,7 @@ const nextConfig = {
   },
   env: {
     // Pinggy Tunnel URL (배포용)
-    NEXT_PUBLIC_API_URL: "https://uexkl-175-113-49-154.a.free.pinggy.link",
+    NEXT_PUBLIC_API_URL: "https://zhapp-175-113-49-154.a.free.pinggy.link",
 
     // API Endpoints
     NEXT_PUBLIC_ANALYZE_ENDPOINT: "/analyze",
@@ -19,7 +19,7 @@ const nextConfig = {
   },
   // Vercel 배포를 위한 환경 변수 강제 설정
   publicRuntimeConfig: {
-    NEXT_PUBLIC_API_URL: "https://uexkl-175-113-49-154.a.free.pinggy.link",
+    NEXT_PUBLIC_API_URL: "https://zhapp-175-113-49-154.a.free.pinggy.link",
   },
 };
 

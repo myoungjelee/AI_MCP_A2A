@@ -558,19 +558,39 @@ class IntegratedAgentNodes:
         try:
             print(f"LLM 호출 시작: model={self.model_name}")
 
-            # 메시지 구성
+            # 메시지 구성 (대화 히스토리 포함)
             messages = [
                 SystemMessage(
-                    content="당신은 전문 투자 분석가입니다. 마크다운 형식으로 체계적이고 이해하기 쉬운 투자 분석 보고서를 작성하세요."
+                    content="당신은 전문 투자 분석가입니다. 마크다운 형식으로 체계적이고 이해하기 쉬운 투자 분석 보고서를 작성하세요. 이전 대화 맥락을 고려하여 자연스럽게 답변하세요."
                 ),
-                HumanMessage(content=response_prompt),
             ]
+
+            # 이전 대화 히스토리 추가
+            conversation_history = state.get("conversation_history", [])
+            for msg in conversation_history:
+                if msg["role"] == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    messages.append(SystemMessage(content=msg["content"]))
+
+            # 현재 질문 추가
+            messages.append(HumanMessage(content=response_prompt))
 
             # ainvoke 호출 (공식 문서 패턴)
             response = await self.llm.ainvoke(messages)
 
             print(f"LLM 호출 성공: {len(response.content)} 문자")
-            return response.content
+
+            # 대화 히스토리에 현재 대화 추가
+            response_content = response.content
+            state["conversation_history"].append(
+                {"role": "user", "content": state["question"]}
+            )
+            state["conversation_history"].append(
+                {"role": "assistant", "content": response_content}
+            )
+
+            return response_content
 
         except Exception as e:
             print(f"LLM 호출 실패: {type(e).__name__}: {e}")

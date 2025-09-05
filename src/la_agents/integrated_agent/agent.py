@@ -48,6 +48,30 @@ class IntegratedAgent:
 
         return workflow
 
+    async def _load_conversation_history(self, session_id: str) -> List[Dict[str, str]]:
+        """세션의 대화 히스토리 로드"""
+        try:
+            config = {"configurable": {"thread_id": session_id}}
+            checkpoint = self.memory.get(config)
+
+            if checkpoint and "channel_values" in checkpoint:
+                # LangGraph 체크포인트에서 메시지 히스토리 추출
+                channel_values = checkpoint["channel_values"]
+                if "messages" in channel_values:
+                    messages = channel_values["messages"]
+                    # LangGraph 메시지를 일반 형식으로 변환
+                    history = []
+                    for msg in messages:
+                        if hasattr(msg, "content") and hasattr(msg, "type"):
+                            role = "user" if msg.type == "human" else "assistant"
+                            history.append({"role": role, "content": msg.content})
+                    return history
+
+            return []
+        except Exception as e:
+            print(f"대화 히스토리 로드 실패: {e}")
+            return []
+
     async def process_question(
         self, question: str, session_id: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -69,6 +93,11 @@ class IntegratedAgent:
 
             # 초기 상태 생성
             initial_state = create_initial_state(question, session_id)
+
+            # 이전 대화 히스토리 로드
+            if session_id:
+                conversation_history = await self._load_conversation_history(session_id)
+                initial_state["conversation_history"] = conversation_history
 
             # 워크플로우 실행
             config = {"configurable": {"thread_id": session_id or "default"}}
@@ -132,6 +161,11 @@ class IntegratedAgent:
 
             # 초기 상태 생성
             initial_state = create_initial_state(question, session_id)
+
+            # 이전 대화 히스토리 로드
+            if session_id:
+                conversation_history = await self._load_conversation_history(session_id)
+                initial_state["conversation_history"] = conversation_history
 
             # 워크플로우 스트리밍 실행
             config = {"configurable": {"thread_id": session_id or "default"}}
