@@ -234,6 +234,17 @@ class BaseHTTPClient:
             self._client = None
             self.logger.info("HTTP 클라이언트 리소스 정리 완료")
 
+    async def list_tools(self) -> List[Dict[str, Any]]:
+        """
+        사용 가능한 도구 목록을 가져옵니다.
+        BaseHTTPClient를 상속받는 클래스에서 구현해야 합니다.
+
+        Returns:
+            도구 목록
+        """
+        # 기본 구현: 빈 목록 반환
+        return []
+
 
 class BaseMCPClient(ABC):
     """FastMCP 기반 MCP 클라이언트의 베이스 클래스"""

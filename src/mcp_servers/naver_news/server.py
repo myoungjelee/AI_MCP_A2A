@@ -205,6 +205,90 @@ class NaverNewsMCPServer(BaseMCPServer):
                     symbol=symbol,
                 )
 
+        @self.mcp.tool()
+        async def analyze_news_sentiment(
+            text: str, keywords: list = None
+        ) -> dict[str, Any]:
+            """
+            뉴스 감정 분석
+
+            Args:
+                text: 분석할 텍스트
+                keywords: 추가 키워드 (선택사항)
+
+            Returns:
+                감정 분석 결과 (긍정/부정/중립)
+            """
+            try:
+                if not self.news_client:
+                    return self.create_error_response(
+                        query=f"analyze_news_sentiment: {text[:50]}...",
+                        error="NewsClient not initialized",
+                        func_name="analyze_news_sentiment",
+                    )
+
+                result = await self.news_client.analyze_sentiment(
+                    text=text, keywords=keywords or []
+                )
+
+                return self.create_standard_response(
+                    success=True,
+                    query=f"analyze_news_sentiment: {text[:50]}...",
+                    data=result,
+                )
+
+            except Exception as e:
+                return self.create_error_response(
+                    func_name="analyze_news_sentiment",
+                    error=e,
+                    text=text[:50] + "..." if len(text) > 50 else text,
+                )
+
+        @self.mcp.tool()
+        async def extract_stock_keywords(text: str) -> dict[str, Any]:
+            """
+            주식 관련 키워드 추출
+
+            Args:
+                text: 키워드를 추출할 텍스트
+
+            Returns:
+                추출된 주식 관련 키워드 리스트
+            """
+            try:
+                if not self.news_client:
+                    return self.create_error_response(
+                        query=f"extract_stock_keywords: {text[:50]}...",
+                        error="NewsClient not initialized",
+                        func_name="extract_stock_keywords",
+                    )
+
+                result = await self.news_client.extract_stock_keywords(text=text)
+
+                return self.create_standard_response(
+                    success=True,
+                    query=f"extract_stock_keywords: {text[:50]}...",
+                    data=result,
+                )
+
+            except Exception as e:
+                return self.create_error_response(
+                    func_name="extract_stock_keywords",
+                    error=e,
+                    text=text[:50] + "..." if len(text) > 50 else text,
+                )
+
+        # 서버 상태 및 메트릭 도구 추가
+        @self.mcp.tool()
+        async def get_server_health() -> dict[str, Any]:
+            """서버 헬스 상태 조회"""
+            return self.get_health_status()
+
+        @self.mcp.tool()
+        async def get_server_metrics() -> dict[str, Any]:
+            """서버 메트릭 조회"""
+            return self.get_metrics()
+
 
 def main():
     """메인 함수"""

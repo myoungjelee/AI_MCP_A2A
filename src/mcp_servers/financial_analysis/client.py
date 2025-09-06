@@ -28,6 +28,10 @@ from enum import Enum
 from typing import Any, Dict, List
 
 import requests
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
 
 from src.mcp_servers.base.base_mcp_client import BaseMCPClient
 from src.mcp_servers.base.middleware import MiddlewareManager
@@ -176,11 +180,11 @@ class FinancialAnalysisClient(BaseMCPClient):
             return data
 
         except requests.RequestException as e:
-            raise FinancialAnalysisError(f"DART API 호출 실패: {e}", "API_ERROR")
+            raise FinancialAnalysisError(f"DART API 호출 실패: {e}", "API_ERROR") from e
         except Exception as e:
             raise FinancialAnalysisError(
                 f"DART 데이터 처리 실패: {e}", "PROCESSING_ERROR"
-            )
+            ) from e
 
     async def _fetch_ecos_market_data(
         self, indicator: str, start_date: str, end_date: str
@@ -227,11 +231,11 @@ class FinancialAnalysisClient(BaseMCPClient):
             return records
 
         except requests.RequestException as e:
-            raise FinancialAnalysisError(f"ECOS API 호출 실패: {e}", "API_ERROR")
+            raise FinancialAnalysisError(f"ECOS API 호출 실패: {e}", "API_ERROR") from e
         except Exception as e:
             raise FinancialAnalysisError(
                 f"ECOS 데이터 처리 실패: {e}", "PROCESSING_ERROR"
-            )
+            ) from e
 
     async def get_financial_data(
         self, symbol: str, data_type: str, year: int = None, quarter: int = None
@@ -322,7 +326,7 @@ class FinancialAnalysisClient(BaseMCPClient):
             self.logger.error(f"재무 데이터 조회 실패: {e}")
             raise FinancialAnalysisError(
                 f"재무 데이터 조회 실패: {e}", "DATA_FETCH_ERROR"
-            )
+            ) from e
 
     async def _generate_dummy_financial_data(
         self, symbol: str, data_type: str, year: int, quarter: int = None
@@ -625,8 +629,13 @@ class FinancialAnalysisClient(BaseMCPClient):
                 "parameters": {"symbol": "종목코드"},
             },
             {
-                "name": "calculate_dcf_valuation",
-                "description": "DCF 밸류에이션 계산",
+                "name": "generate_investment_report",
+                "description": "투자 분석 리포트 생성",
+                "parameters": {"symbol": "종목코드"},
+            },
+            {
+                "name": "perform_dcf_valuation",
+                "description": "DCF 밸류에이션 수행",
                 "parameters": {
                     "symbol": "종목코드",
                     "growth_rate": "성장률 (%)",
@@ -636,9 +645,14 @@ class FinancialAnalysisClient(BaseMCPClient):
                 },
             },
             {
-                "name": "generate_investment_report",
-                "description": "투자 분석 리포트 생성",
-                "parameters": {"symbol": "종목코드"},
+                "name": "get_server_health",
+                "description": "서버 헬스 상태 조회",
+                "parameters": {},
+            },
+            {
+                "name": "get_server_metrics",
+                "description": "서버 메트릭 조회",
+                "parameters": {},
             },
         ]
 
@@ -661,15 +675,21 @@ class FinancialAnalysisClient(BaseMCPClient):
                 ratios = self.calculate_financial_ratios(financial_data)
                 return {"success": True, "data": ratios}
 
-            elif tool_name == "calculate_dcf_valuation":
-                symbol = params.get("symbol", "")
-                result = await self.calculate_dcf_valuation(symbol, **params)
-                return {"success": True, "data": result}
-
             elif tool_name == "generate_investment_report":
                 symbol = params.get("symbol", "")
                 result = await self.generate_investment_report(symbol)
                 return {"success": True, "data": result}
+
+            elif tool_name == "perform_dcf_valuation":
+                symbol = params.get("symbol", "")
+                result = await self.calculate_dcf_valuation(symbol, **params)
+                return {"success": True, "data": result}
+
+            elif tool_name == "get_server_health":
+                return await self.get_server_health()
+
+            elif tool_name == "get_server_metrics":
+                return await self.get_server_metrics()
 
             else:
                 return {
@@ -689,6 +709,29 @@ class FinancialAnalysisClient(BaseMCPClient):
     async def close(self):
         """클라이언트 리소스 정리"""
         self.logger.info("FinancialAnalysisClient 종료")
+
+    async def get_server_health(self) -> Dict[str, Any]:
+        """서버 헬스 상태 조회"""
+        return {
+            "status": "healthy",
+            "service": "FinancialAnalysis",
+            "timestamp": datetime.now().isoformat(),
+            "message": "FinancialAnalysis MCP 서버가 정상적으로 작동 중입니다",
+        }
+
+    async def get_server_metrics(self) -> Dict[str, Any]:
+        """서버 메트릭 조회"""
+        return {
+            "service": "FinancialAnalysis",
+            "cache_entries": len(self._cache),
+            "cache_ttl_seconds": self.cache_ttl,
+            "max_retries": self.max_retries,
+            "retry_delay": self.retry_delay,
+            "dart_api_configured": bool(self.dart_api_key),
+            "ecos_api_configured": bool(self.ecos_api_key),
+            "timestamp": datetime.now().isoformat(),
+            "message": "FinancialAnalysis MCP 서버 메트릭 정보",
+        }
 
     async def _call_tool_stream_internal(self, tool_name: str, params: Dict[str, Any]):
         """내부 스트리밍 호출 구현."""

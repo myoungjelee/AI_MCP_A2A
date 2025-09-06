@@ -18,10 +18,10 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.mcp_servers import (
+    FDRMCPServer,
     FinancialAnalysisMCPServer,
-    KiwoomMCPServer,
     MacroeconomicMCPServer,
-    NaverNewsMCPServer, 
+    NaverNewsMCPServer,
     StockAnalysisMCPServer,
     TavilySearchMCPServer,
 )
@@ -100,7 +100,7 @@ class MCPServerManager:
                 "naver_news": NaverNewsMCPServer(port=8050, debug=self.debug),
                 "stock_analysis": StockAnalysisMCPServer(port=8042, debug=self.debug),
                 "tavily_search": TavilySearchMCPServer(port=8043, debug=self.debug),
-                "kiwoom": KiwoomMCPServer(port=8044, debug=self.debug),
+                "financedatareader": FDRMCPServer(port=8044, debug=self.debug),
                 "financial_analysis": FinancialAnalysisMCPServer(
                     port=8045, debug=self.debug
                 ),

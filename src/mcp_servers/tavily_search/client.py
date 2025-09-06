@@ -12,9 +12,13 @@ from enum import Enum
 from typing import Any, Dict, List
 
 import requests
+from dotenv import load_dotenv
 
 from src.mcp_servers.base.base_mcp_client import BaseMCPClient
 from src.mcp_servers.base.middleware import MiddlewareManager
+
+# .env 파일 로드
+load_dotenv()
 
 
 # 간단한 검색 타입 (실제 API 대신)
@@ -363,6 +367,16 @@ class TavilySearchClient(BaseMCPClient):
                     "max_results": "최대 결과 수 (기본값: 10)",
                 },
             },
+            {
+                "name": "get_server_health",
+                "description": "서버 헬스 상태 조회",
+                "parameters": {},
+            },
+            {
+                "name": "get_server_metrics",
+                "description": "서버 메트릭 조회",
+                "parameters": {},
+            },
         ]
 
     async def call_tool(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -377,11 +391,15 @@ class TavilySearchClient(BaseMCPClient):
                 return await self.search_news(query, max_results)
             elif tool_name == "search_finance":
                 return await self.search_finance(query, max_results)
+            elif tool_name == "get_server_health":
+                return await self.get_server_health()
+            elif tool_name == "get_server_metrics":
+                return await self.get_server_metrics()
             else:
                 return {
                     "success": False,
                     "error": f"지원하지 않는 도구: {tool_name}",
-                    "message": "지원하는 도구: search_web, search_news, search_finance",
+                    "message": "지원하는 도구: search_web, search_news, search_finance, get_server_health, get_server_metrics",
                 }
         except Exception as e:
             self.logger.error(f"도구 호출 실패: {e}")
@@ -486,3 +504,25 @@ class TavilySearchClient(BaseMCPClient):
             raise SearchError(
                 f"Tavily 데이터 처리 실패: {e}", "PROCESSING_ERROR"
             ) from e
+
+    async def get_server_health(self) -> Dict[str, Any]:
+        """서버 헬스 상태 조회"""
+        return {
+            "status": "healthy",
+            "service": "TavilySearch",
+            "timestamp": datetime.now().isoformat(),
+            "message": "TavilySearch MCP 서버가 정상적으로 작동 중입니다",
+        }
+
+    async def get_server_metrics(self) -> Dict[str, Any]:
+        """서버 메트릭 조회"""
+        return {
+            "service": "TavilySearch",
+            "cache_entries": len(self._cache),
+            "cache_ttl_seconds": self.cache_ttl,
+            "max_retries": self.max_retries,
+            "retry_delay": self.retry_delay,
+            "tavily_api_configured": bool(self.tavily_api_key),
+            "timestamp": datetime.now().isoformat(),
+            "message": "TavilySearch MCP 서버 메트릭 정보",
+        }

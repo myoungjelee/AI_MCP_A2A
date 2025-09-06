@@ -111,6 +111,7 @@ export function AnalysisProgress({
   // 서버명을 한글로 변환
   const getServerDisplayName = (serverName: string) => {
     const names = {
+      'financedatareader': '금융데이터리더',
       'macroeconomic': '거시경제',
       'financial_analysis': '재무분석',
       'stock_analysis': '주식분석',

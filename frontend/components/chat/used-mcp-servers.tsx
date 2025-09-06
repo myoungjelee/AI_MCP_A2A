@@ -22,12 +22,12 @@ export function UsedMCPServers({
   // 서버명을 한글로 변환
   const getServerDisplayName = (serverName: string) => {
     const names = {
+      'financedatareader': '금융데이터리더',
       'macroeconomic': '거시경제',
       'financial_analysis': '재무분석', 
       'stock_analysis': '주식분석',
       'naver_news': '네이버뉴스',
       'tavily_search': '웹검색',
-      'kiwoom': '키움증권'
     }
     return names[serverName as keyof typeof names] || serverName
   }

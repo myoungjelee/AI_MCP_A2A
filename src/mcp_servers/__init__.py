@@ -21,10 +21,9 @@ from .base import (
     MonitoringConfig,
     RetryConfig,
 )
+from .financedatareader import FDRMCPServer, FinanceDataReaderClient
 from .financial_analysis import FinancialAnalysisClient
 from .financial_analysis.server import FinancialAnalysisMCPServer
-from .kiwoom import KiwoomClient
-from .kiwoom.server import KiwoomMCPServer
 from .macroeconomic import MacroeconomicClient
 
 # MCP 서버들
@@ -52,14 +51,14 @@ __all__ = [
     "StockAnalysisClient",
     "NewsClient",
     "TavilySearchClient",
-    "KiwoomClient",
+    "FinanceDataReaderClient",
     "FinancialAnalysisClient",
     # MCP 서버들
     "MacroeconomicMCPServer",
     "StockAnalysisMCPServer",
     "NaverNewsMCPServer",
     "TavilySearchMCPServer",
-    "KiwoomMCPServer",
+    "FDRMCPServer",
     "FinancialAnalysisMCPServer",
 ]
 
@@ -69,7 +68,7 @@ MCP_SERVER_PORTS = {
     "stock_analysis": 3021,
     "naver_news": 8050,
     "tavily_search": 3020,
-    "kiwoom": 8030,
+    "financedatareader": 8030,
     "financial_analysis": 8040,
 }
 

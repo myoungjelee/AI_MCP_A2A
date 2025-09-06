@@ -28,6 +28,20 @@ export function MCPStatus({ className }: MCPStatusProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // 서버명을 한글로 변환
+  const getServerDisplayName = (serverName: string) => {
+    const names = {
+      'financedatareader': '금융데이터리더',
+      'macroeconomic': '거시경제',
+      'financial_analysis': '재무분석',
+      'stock_analysis': '주식분석',
+      'naver_news': '네이버뉴스',
+      'tavily_search': '웹검색',
+      'kiwoom': '키움증권'
+    }
+    return names[serverName as keyof typeof names] || serverName
+  }
+
   const fetchMCPStatus = async () => {
     try {
       setIsLoading(true)
@@ -136,7 +150,7 @@ export function MCPStatus({ className }: MCPStatusProps) {
             <div className="flex flex-wrap gap-1">
               {mcpStatus.connected_servers.map((server) => (
                 <Badge key={server} variant="secondary" className="text-xs">
-                  {server}
+                  {getServerDisplayName(server)}
                 </Badge>
               ))}
             </div>
@@ -150,7 +164,7 @@ export function MCPStatus({ className }: MCPStatusProps) {
             <div className="flex flex-wrap gap-1">
               {mcpStatus.disconnected_servers.map((server) => (
                 <Badge key={server} variant="outline" className="text-xs text-gray-400">
-                  {server}
+                  {getServerDisplayName(server)}
                 </Badge>
               ))}
             </div>

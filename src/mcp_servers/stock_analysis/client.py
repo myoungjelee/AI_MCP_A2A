@@ -11,9 +11,13 @@ from typing import Any, Dict, List
 
 import FinanceDataReader as fdr
 import numpy as np
+from dotenv import load_dotenv
 
 from src.mcp_servers.base.base_mcp_client import BaseMCPClient
 from src.mcp_servers.base.middleware import MiddlewareManager
+
+# .env 파일 로드
+load_dotenv()
 
 
 @dataclass
@@ -409,6 +413,27 @@ class StockAnalysisClient(BaseMCPClient):
 
         return float(rsi)
 
+    async def get_server_health(self) -> Dict[str, Any]:
+        """서버 헬스 상태 조회"""
+        return {
+            "status": "healthy",
+            "service": "StockAnalysis",
+            "timestamp": datetime.now().isoformat(),
+            "message": "StockAnalysis MCP 서버가 정상적으로 작동 중입니다",
+        }
+
+    async def get_server_metrics(self) -> Dict[str, Any]:
+        """서버 메트릭 조회"""
+        return {
+            "service": "StockAnalysis",
+            "cache_entries": len(self._cache),
+            "cache_ttl_seconds": self.cache_ttl,
+            "max_retries": self.max_retries,
+            "retry_delay": self.retry_delay,
+            "timestamp": datetime.now().isoformat(),
+            "message": "StockAnalysis MCP 서버 메트릭 정보",
+        }
+
     async def list_tools(self) -> List[Dict[str, Any]]:
         """사용 가능한 도구 목록을 반환합니다."""
         return [
@@ -430,6 +455,16 @@ class StockAnalysisClient(BaseMCPClient):
                 "description": "패턴 인식 수행 (캐싱 + 재시도 로직)",
                 "parameters": {"symbol": "분석할 심볼"},
             },
+            {
+                "name": "get_server_health",
+                "description": "서버 헬스 상태 조회",
+                "parameters": {},
+            },
+            {
+                "name": "get_server_metrics",
+                "description": "서버 메트릭 조회",
+                "parameters": {},
+            },
         ]
 
     async def call_tool(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -444,11 +479,15 @@ class StockAnalysisClient(BaseMCPClient):
                 return await self.calculate_statistical_indicators(symbol)
             elif tool_name == "perform_pattern_recognition":
                 return await self.perform_pattern_recognition(symbol)
+            elif tool_name == "get_server_health":
+                return await self.get_server_health()
+            elif tool_name == "get_server_metrics":
+                return await self.get_server_metrics()
             else:
                 return {
                     "success": False,
                     "error": f"지원하지 않는 도구: {tool_name}",
-                    "message": "지원하는 도구: analyze_data_trends, calculate_statistical_indicators, perform_pattern_recognition",
+                    "message": "지원하는 도구: analyze_data_trends, calculate_statistical_indicators, perform_pattern_recognition, get_server_health, get_server_metrics",
                 }
         except Exception as e:
             self.logger.error(f"도구 호출 실패: {e}")

@@ -154,25 +154,23 @@ services:
       retries: 3
       start_period: 40s
 
-  # 6. 키움 API 연동 시스템 MCP 서버
-  kiwoom_mcp:
+  # 6. FinanceDataReader 연동 시스템 MCP 서버
+  financedatareader_mcp:
     build:
       context: .
       dockerfile: docker/mcp_servers/Dockerfile
-    container_name: kiwoom_mcp
+    container_name: financedatareader_mcp
     ports:
       - "8030:8030"
     environment:
-      - MCP_SERVER_TYPE=kiwoom
+      - MCP_SERVER_TYPE=financedatareader
       - MCP_SERVER_PORT=8030
       - MCP_SERVER_HOST=0.0.0.0
-      - KIWOOM_APP_KEY=${KIWOOM_APP_KEY}
-      - KIWOOM_APP_SECRET=${KIWOOM_APP_SECRET}
     volumes:
       - ./src:/app/src
       - ./requirements.txt:/app/requirements.txt
       - ./.env:/app/.env
-    command: ["python", "-m", "src.mcp_servers.kiwoom.server"]
+    command: ["python", "-m", "src.mcp_servers.financedatareader.server"]
     restart: unless-stopped
     networks:
       - ai_mcp_network
@@ -198,7 +196,7 @@ services:
     environment:
       - AGENT_PORT=8000
       - AGENT_HOST=0.0.0.0
-      - MCP_SERVERS=macroeconomic,financial_analysis,stock_analysis,naver_news,tavily_search,kiwoom
+      - MCP_SERVERS=macroeconomic,financial_analysis,stock_analysis,naver_news,tavily_search,financedatareader
       # Ollama (로컬 LLM) 연결 설정 - Docker에서 호스트로 연결
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
@@ -206,7 +204,7 @@ services:
       - ./src:/app/src
       - ./requirements.txt:/app/requirements.txt
       - ./.env:/app/.env
-    command: ["python", "-m", "src.la_agents.integrated_agent.server"]
+    command: ["python", "-m", "src.agent.integrated_agent.server"]
     restart: unless-stopped
     networks:
       - ai_mcp_network
@@ -221,7 +219,7 @@ services:
         condition: service_healthy
       tavily_search_mcp:
         condition: service_healthy
-      kiwoom_mcp:
+      financedatareader_mcp:
         condition: service_healthy
       redis:
         condition: service_started

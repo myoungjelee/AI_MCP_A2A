@@ -85,3 +85,4 @@ extend-ignore = [
 [tool.coverage.run]
 source = ["src"]
 omit = ["*/tests/*", "*/test_*"]
+

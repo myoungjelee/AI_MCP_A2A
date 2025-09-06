@@ -14,9 +14,13 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 import requests
+from dotenv import load_dotenv
 
 from ..base.base_mcp_client import BaseMCPClient
 from ..base.middleware import MiddlewareManager
+
+# .env 파일 로드
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -699,6 +703,27 @@ class MacroeconomicClient(BaseMCPClient):
         except Exception:
             return []
 
+    async def get_server_health(self) -> Dict[str, Any]:
+        """서버 헬스 상태 조회"""
+        return {
+            "status": "healthy",
+            "service": "Macroeconomic",
+            "timestamp": datetime.now().isoformat(),
+            "message": "Macroeconomic MCP 서버가 정상적으로 작동 중입니다",
+        }
+
+    async def get_server_metrics(self) -> Dict[str, Any]:
+        """서버 메트릭 조회"""
+        return {
+            "service": "Macroeconomic",
+            "cache_entries": len(self._cache),
+            "cache_ttl_seconds": self._cache_ttl,
+            "max_batch_size": self.max_batch_size,
+            "max_retries": self.max_retries,
+            "timestamp": datetime.now().isoformat(),
+            "message": "Macroeconomic MCP 서버 메트릭 정보",
+        }
+
     async def list_tools(self) -> List[Dict[str, Any]]:
         """사용 가능한 도구 목록"""
         return [
@@ -724,6 +749,16 @@ class MacroeconomicClient(BaseMCPClient):
                 "description": "데이터 트렌드 분석 - 선형 회귀를 사용한 트렌드 분석",
                 "parameters": {"data_records": "분석할 데이터 레코드 리스트"},
             },
+            {
+                "name": "get_server_health",
+                "description": "서버 헬스 상태 조회",
+                "parameters": {},
+            },
+            {
+                "name": "get_server_metrics",
+                "description": "서버 메트릭 조회",
+                "parameters": {},
+            },
         ]
 
     async def call_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
@@ -735,6 +770,10 @@ class MacroeconomicClient(BaseMCPClient):
                 return await self.process_data_batch(**kwargs)
             elif tool_name == "analyze_data_trends":
                 return await self.analyze_data_trends(**kwargs)
+            elif tool_name == "get_server_health":
+                return await self.get_server_health()
+            elif tool_name == "get_server_metrics":
+                return await self.get_server_metrics()
             else:
                 raise DataProcessingError(
                     f"지원하지 않는 도구: {tool_name}", "UNSUPPORTED_TOOL"
