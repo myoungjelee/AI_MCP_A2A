@@ -47,7 +47,7 @@ flowchart TD
     F --> H[주식분석 MCP]
     F --> I[뉴스 MCP]
     F --> J[웹검색 MCP]
-    F --> K[증권사 API MCP]
+    F --> K[FinaceDataReader MCP]
     F --> L[재무분석 MCP]
 
     G --> M[(데이터 통합)]
