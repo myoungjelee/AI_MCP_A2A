@@ -491,7 +491,7 @@ class IntegratedAgentNodes:
             messages.insert(
                 0,
                 SystemMessage(
-                    content="당신은 전문 투자 분석가입니다. 최신성과 근거를 명확히 제시하세요."
+                    content="당신은 전문 투자 분석가입니다. 최신성과 근거를 명확히 제시하세요.\n\n[중요] 모든 답변은 반드시 한국어로만 작성하세요. 영어나 다른 언어는 절대 사용하지 마세요."
                 ),
             )
         messages.append(HumanMessage(content=prompt))
