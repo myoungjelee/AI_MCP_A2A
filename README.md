@@ -104,6 +104,28 @@ AI_MCP_A2A/
 
 ---
 
+### 📡 MCP 서버 (FastMCP 기반)
+
+- **Macroeconomic** – 거시경제 데이터  
+  🔗 소스: _한국은행 ECOS API_, _미국 FRED API_
+
+- **Stock Analysis** – 주가/기술적 지표 분석  
+  🔗 소스: _내부 분석 알고리즘_
+
+- **Naver News** – 증권/경제 뉴스 크롤링  
+  🔗 소스: _네이버 검색 OpenAPI_
+
+- **Tavily Search** – 실시간 웹 검색  
+  🔗 소스: _Tavily API_
+
+- **FinanceDataReader** – 상장 종목 시세 데이터 조회 (국내/해외 지원)  
+  🔗 소스: _FinanceDataReader 라이브러리_
+
+- **Financial Analysis** – 기업 재무제표 및 지표 분석  
+  🔗 소스: _DART 전자공시 API_, _한국은행 ECOS API_
+
+---
+
 ## 📈 성과
 
 - ✅ 6개 MCP 서버 개발
@@ -115,6 +137,6 @@ AI_MCP_A2A/
 
 ## 🤝 프로젝트 정보
 
-- **기간**: 2025.08.23 \~ 2025.09.03
+- **기간**: 2025.08.23 \~ 2025.09.06
 - **주요 기술**: LangGraph, FastMCP, Docker, Next.js
 - **핵심 어필**: AI 시스템 아키텍처 설계 & 운영 능력
