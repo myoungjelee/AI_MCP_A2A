@@ -17,6 +17,7 @@ from ..base.mcp_tools_map import (
     select_servers_for_collection,
     select_tools_for_server,
 )
+from .prompts import AGENT_SYSTEM_PROMPT  # 중앙 관리 프롬프트
 from .state import IntegratedAgentState, add_error, add_warning, update_current_step
 from .validation import InvestmentQuestionValidator, validate_investment_question
 
@@ -27,6 +28,7 @@ class IntegratedAgentNodes:
     def __init__(self, model_name: str = "gpt-oss:20b"):
         self.model_name = model_name
         try:
+            # Ollama LLM 초기화 (기본 로컬 엔드포인트)
             self.llm = ChatOllama(
                 model=model_name,
                 base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
@@ -40,8 +42,10 @@ class IntegratedAgentNodes:
             print(f"ChatOllama 초기화 실패: {e}")
             raise
 
+        # 투자 질문 검증기
         self.validator = InvestmentQuestionValidator(model_name)
 
+        # MCP 클라이언트/도구 맵
         self.mcp_client: Optional[MultiServerMCPClient] = None
         self.mcp_tools_dict: Dict[str, Any] = {}
 
@@ -99,13 +103,14 @@ class IntegratedAgentNodes:
 
             new_state = update_current_step(state, "collect")
 
+            # 질문 기반 서버 선택 (FDR 최우선)
             selected_servers = select_servers_for_collection(state["question"])
-            # FDR 항상 맨 앞 보장
             selected_servers = ["financedatareader"] + [
                 s for s in selected_servers if s != "financedatareader"
             ]
             new_state = update_current_step(new_state, "collect", selected_servers)
 
+            # 서버 병렬 수집
             tasks = [
                 self._collect_from_server(s, state["question"])
                 for s in selected_servers
@@ -144,7 +149,7 @@ class IntegratedAgentNodes:
 
             new_state = update_current_step(state, "analyze")
 
-            # 고정값 대신 질문 기반 동적 선택
+            # 질문 기반 동적 서버 선택
             analysis_servers = await self._select_mcp_servers_for_analysis(
                 state.get("question", "")
             )
@@ -152,6 +157,7 @@ class IntegratedAgentNodes:
 
             collected_data = state.get("collected_data", {})
 
+            # 서버별 분석 실행
             tasks = [
                 self._analyze_with_server(
                     server, collected_data, state.get("question", "")
@@ -206,11 +212,10 @@ class IntegratedAgentNodes:
                 state["question"], analysis_result, collected_data
             )
 
+            # ★ 시스템 메시지에 중앙 프롬프트 주입
             decision_response = await self.llm.ainvoke(
                 [
-                    SystemMessage(
-                        content="당신은 투자 의사결정 전문가입니다. 데이터와 분석을 바탕으로 명확한 결론을 제시하세요."
-                    ),
+                    SystemMessage(content=AGENT_SYSTEM_PROMPT),
                     HumanMessage(content=decision_prompt),
                 ]
             )
@@ -324,6 +329,7 @@ class IntegratedAgentNodes:
         return [s for s in servers if not (s in seen or seen.add(s))]
 
     async def _collect_from_server(self, server: str, question: str) -> Dict[str, Any]:
+        """선택 서버에서 데이터 수집 (수집 단계 freshness 강제)"""
         try:
             if not self.mcp_client:
                 await self.initialize_mcp_tools()
@@ -392,8 +398,9 @@ class IntegratedAgentNodes:
                         now_iso = datetime.now(timezone.utc).isoformat()
                         tool_params.setdefault("as_of", now_iso)
 
-                        result = await self.mcp_tools_dict[tool_name].ainvoke(
-                            tool_params
+                        # ★ 필수 파라미터 부족 시 호출 건너뛰기
+                        result = await self._safe_invoke(
+                            self.mcp_tools_dict[tool_name], tool_params
                         )
                         analysis_results[tool_name] = result
                     except Exception as e:
@@ -420,6 +427,7 @@ class IntegratedAgentNodes:
     async def _integrate_analysis_results(
         self, results: Dict[str, Any], question: str
     ) -> Dict[str, Any]:
+        """서버별 분석 결과 통합"""
         all_insights: List[str] = []
         total_confidence = 0.0
         count = 0
@@ -439,6 +447,7 @@ class IntegratedAgentNodes:
         }
 
     def _calculate_data_quality(self, data: Dict[str, Any]) -> float:
+        """수집 성공 서버 비율로 간단한 품질 점수 계산"""
         if not data:
             return 0.0
         successful_servers = sum(
@@ -450,16 +459,17 @@ class IntegratedAgentNodes:
     def _create_decision_prompt(
         self, question: str, analysis: Dict[str, Any], data: Dict[str, Any]
     ) -> str:
+        """결정용 사용자 프롬프트(간결 버전)"""
         return f"""
 **질문**: {question}
 
 **분석 결과**
 - 신뢰도: {analysis.get('confidence', 0)}
-- 핵심 인사이트 개수: {len(analysis.get('integrated_insights', []))}
+- 통합 인사이트 수: {len(analysis.get('integrated_insights', []))}
 
 **수집된 데이터 서버**: {list(data.keys())}
 
-최신 시세(FDR)와 보강 분석을 바탕으로 명확한 권고안을 제시하세요.
+최신 시세(FDR)와 보강 분석을 바탕으로 명확하고 실행 가능한 권고안을 제시하세요.
 """
 
     async def _generate_final_response(
@@ -470,16 +480,12 @@ class IntegratedAgentNodes:
         data: Dict[str, Any],
         insights: List[str],
     ) -> str:
-        prompt = f"""
-사용자 질문: {question}
+        """최종 보고서 생성 (system=중앙 프롬프트 / user=짧은 지시)"""
+        # user 프롬프트는 짧게: 질문만 전달하고, 출력 규격/톤/근거는 system(AGENT_SYSTEM_PROMPT)에 위임
+        prompt = (
+            f"사용자 질문: {question}\n위 원칙에 따라 마크다운 보고서를 작성하세요."
+        )
 
-최신성(FDR 우선)과 보강 분석 결과를 바탕으로 전문적인 투자 분석 보고서를 마크다운으로 작성하세요.
-1) 핵심 요약
-2) 상세 분석
-3) 주요 인사이트
-4) 리스크 요인
-5) 투자 권고
-"""
         messages = state.get("messages", [])
         if not messages or not isinstance(messages[0], SystemMessage):
             messages.insert(
@@ -523,37 +529,213 @@ class IntegratedAgentNodes:
 
         return allow[:2]
 
+    # === [REPLACE] 수집 단계 파라미터 보강 ===
     def _create_tool_params(self, tool_name: str, question: str) -> Dict[str, Any]:
-        if tool_name in ["search_news_articles", "search_web"]:
+        """
+        수집 단계 파라미터:
+        - 뉴스/웹: query
+        - 시세/체결/차트/호가: stock_code
+        - 시장 개요/상태/랭킹: 대부분 파라미터 불필요
+        """
+        inferred = self._infer_symbols(question)
+        stock_code = inferred["stock_code"]
+
+        # 뉴스/웹 검색류
+        if tool_name in {
+            "search_news_articles",
+            "search_news",
+            "search_finance",
+            "search_web",
+        }:
             return {"query": question}
-        elif tool_name == "get_stock_price":
-            return {"stock_code": "005930"}
-        elif tool_name == "get_stock_info":
-            return {"stock_code": "005930"}
-        else:
+
+        # 시세/체결/차트/호가 등: 보통 stock_code 요구
+        if tool_name in {
+            "get_stock_basic_info",
+            "get_stock_info",
+            "get_daily_chart",
+            "get_minute_chart",
+            "get_stock_orderbook",
+            "get_stock_execution_info",
+        }:
+            return {"stock_code": stock_code}
+
+        # 시장 개요/상태/랭킹류
+        if tool_name in {
+            "get_market_overview",
+            "get_market_status",
+            "get_price_change_ranking",
+            "get_volume_top_ranking",
+            "get_foreign_trading_trend",
+            "get_server_health",
+            "get_server_metrics",
+        }:
             return {}
 
+        # 이름 검색
+        if tool_name == "search_stock_by_name":
+            return {"query": question}
+
+        # 기본값
+        return {}
+
+    # === [REPLACE] 분석 단계 파라미터 보강 ===
     def _create_analysis_params(
         self, tool_name: str, data: Dict[str, Any], question: str
     ) -> Dict[str, Any]:
-        if tool_name == "analyze_financial_ratios":
-            return {"company_code": "005930", "period": "quarterly"}
-        elif tool_name == "analyze_stock_performance":
-            return {"stock_code": "005930", "period_days": 30}
-        elif tool_name == "calculate_valuation_metrics":
-            return {"stock_code": "005930"}
-        elif tool_name == "get_technical_indicators":
-            return {"stock_code": "005930", "period_days": 60}
-        else:
-            return {}
+        """
+        분석 단계 파라미터:
+        - 재무/밸류/통계: symbol 우선
+        - 기술/성과: stock_code
+        - 데이터 기반 분석(analyze_data_trends): data_records 있을 때만 호출
+        """
+        inferred = self._infer_symbols(question)
+        stock_code, symbol = inferred["stock_code"], inferred["symbol"]
+
+        # 재무/밸류/통계
+        if tool_name in {
+            "get_financial_data",
+            "calculate_financial_ratios",
+            "perform_dcf_valuation",
+        }:
+            return {"symbol": symbol}
+
+        if tool_name in {
+            "calculate_statistical_indicators",
+            "perform_pattern_recognition",
+        }:
+            return {"symbol": symbol}
+
+        # 데이터 기반 추세 분석: data_records 필요 → 없으면 빈 dict(=스킵)
+        if tool_name == "analyze_data_trends":
+            series = self._extract_timeseries_from_collected(data)
+            return {"symbol": symbol, "data_records": series} if series else {}
+
+        # 기술/성과
+        if tool_name == "analyze_stock_performance":
+            return {"stock_code": stock_code, "period_days": 30}
+        if tool_name == "get_technical_indicators":
+            return {"stock_code": stock_code, "period_days": 60}
+
+        # 밸류 계산
+        if tool_name == "calculate_valuation_metrics":
+            return {"stock_code": stock_code}
+
+        # 뉴스 분석
+        if tool_name in {"analyze_news_sentiment", "extract_stock_keywords"}:
+            return {"query": question}
+
+        return {}
 
     def _extract_insights_from_analysis(
         self, analysis_results: Dict[str, Any]
     ) -> List[str]:
+        """분석 결과에서 간단한 인사이트 요약 추출"""
         insights: List[str] = []
         for tool_name, result in analysis_results.items():
             if isinstance(result, dict) and "error" in result:
                 insights.append(f"{tool_name} 분석 실패: {result['error']}")
+            elif isinstance(result, dict) and result.get("skipped"):
+                insights.append(f"{tool_name} 호출 건너뜀: {result.get('reason')}")
             else:
                 insights.append(f"{tool_name} 분석 완료")
         return insights
+
+    # ===================== 여기서부터 추가 헬퍼 =====================
+
+    # === [ADD] 질문에서 종목코드/티커 추론 (국내 6자리 or 영문 1~5자) ===
+    def _infer_symbols(self, question: str) -> dict:
+        """
+        간단 추론 규칙:
+        - 한국 6자리 숫자가 있으면 stock_code로 사용 (예: 005930)
+        - 영문 대문자 1~5자 토큰이 있으면 symbol로 사용 (예: AAPL, TSLA)
+        - 둘 다 없으면 기본값: 005930(삼성전자)로 채움
+        """
+        import re
+
+        q = (question or "").upper()
+
+        # 1) 한국식 6자리 종목코드
+        m_code = re.search(r"\b\d{6}\b", q)
+        stock_code = m_code.group(0) if m_code else "005930"  # 기본값
+
+        # 2) 영문 티커(간단 검출: 1~5자 대문자)
+        m_sym = re.search(r"\b[A-Z]{1,5}\b", q)
+        symbol = m_sym.group(0) if m_sym else stock_code  # 없으면 코드로 대체
+
+        return {"stock_code": stock_code, "symbol": symbol}
+
+    # === [ADD] FDR 수집 결과에서 시계열을 꺼내 'data_records' 표준화 ===
+    def _extract_timeseries_from_collected(
+        self, collected: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        기대 포맷(예):
+          collected["financedatareader"]["data"]["get_daily_chart"] -> {"rows": [...]} 또는 직접 list
+        방어적으로 여러 케이스를 처리.
+        """
+        try:
+            fdr = collected.get("financedatareader", {})
+            data = fdr.get("data", {})
+            chart = data.get("get_daily_chart") or data.get("get_minute_chart")
+            if not chart:
+                return []
+
+            rows = chart.get(
+                "rows", chart
+            )  # dict에 rows가 있으면 rows, 없으면 리스트 가정
+            out: List[Dict[str, Any]] = []
+            for r in rows:
+                out.append(
+                    {
+                        "date": r.get("date") or r.get("timestamp"),
+                        "open": r.get("open"),
+                        "high": r.get("high"),
+                        "low": r.get("low"),
+                        "close": r.get("close"),
+                        "volume": r.get("volume"),
+                    }
+                )
+            # 날짜/종가 보유한 레코드만, 너무 길면 500개 컷
+            return [x for x in out if x["date"] and x["close"] is not None][:500]
+        except Exception:
+            return []
+
+    # === [ADD] 필수 파라미터 부족 시 호출 건너뛰기 ===
+    async def _safe_invoke(self, tool, params: Dict[str, Any]) -> Any:
+        """
+        툴 이름 휴리스틱으로 필수 파라미터를 점검하고,
+        비어 있으면 실패 대신 'skipped'로 처리하여 워크플로를 끊지 않음.
+        """
+        name = getattr(tool, "name", "")
+        must = set()
+
+        # 간단 휴리스틱(툴 이름으로 감지)
+        if "stock" in name and (
+            "info" in name
+            or "chart" in name
+            or "orderbook" in name
+            or "execution" in name
+        ):
+            must.add("stock_code")
+        if (
+            "financial" in name
+            or "valuation" in name
+            or "statistical" in name
+            or "pattern" in name
+        ):
+            must.add("symbol")
+        if "news" in name or "search" in name:
+            must.add("query")
+        if "trends" in name and "analyze" in name:
+            must.add("data_records")
+
+        # 하나라도 빠졌으면 스킵
+        if any(k not in params or params.get(k) in (None, "", []) for k in must):
+            return {
+                "skipped": True,
+                "reason": f"missing required params {sorted(list(must))}",
+            }
+
+        # 정상 호출
+        return await tool.ainvoke(params)
