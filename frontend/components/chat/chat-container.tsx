@@ -44,6 +44,7 @@ interface ChatContainerProps {
   messages: Message[]
   input: string
   isLoading: boolean
+  isValidating?: boolean
   onInputChange: (value: string) => void
   onSend: () => void
   onMessageCopy?: () => void
@@ -60,6 +61,7 @@ export function ChatContainer({
   messages,
   input,
   isLoading,
+  isValidating = false,
   onInputChange,
   onSend,
   onMessageCopy,
@@ -146,6 +148,7 @@ export function ChatContainer({
                   onSend={onSend}
                   disabled={isLoading}
                   isLoading={isLoading}
+                  isValidating={isValidating}
                   placeholder="메시지를 입력하세요..."
                 />
               </div>

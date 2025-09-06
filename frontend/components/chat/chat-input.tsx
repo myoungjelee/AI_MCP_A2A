@@ -14,6 +14,7 @@ interface ChatInputProps {
   placeholder?: string
   disabled?: boolean
   isLoading?: boolean
+  isValidating?: boolean
   maxLength?: number
   quickSuggestions?: string[]
   onSuggestionClick?: (suggestion: string) => void
@@ -29,6 +30,7 @@ export function ChatInput({
   placeholder = "메시지를 입력하세요...",
   disabled = false,
   isLoading = false,
+  isValidating = false,
   maxLength = 2000,
   quickSuggestions = [],
   onSuggestionClick,
@@ -51,7 +53,7 @@ export function ChatInput({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (value.trim() && !disabled) {
+      if (value.trim() && !disabled && !isValidating) {
         onSend()
       }
     }
@@ -62,7 +64,7 @@ export function ChatInput({
     onSuggestionClick?.(suggestion)
   }
 
-  const canSend = value.trim().length > 0 && !disabled
+  const canSend = value.trim().length > 0 && !disabled && !isValidating
 
   return (
     <div className="border-t bg-white">
@@ -78,7 +80,7 @@ export function ChatInput({
                   size="sm"
                   onClick={() => handleSuggestionClick(suggestion)}
                   className="justify-start h-10 text-sm bg-white hover:bg-gray-50 border-gray-200"
-                  disabled={disabled}
+                  disabled={disabled || isValidating}
                 >
                   {suggestion}
                 </Button>
@@ -112,7 +114,7 @@ export function ChatInput({
                   "focus:ring-0 focus:outline-none placeholder:text-gray-400",
                   "scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent"
                 )}
-                disabled={disabled}
+                disabled={disabled || isValidating}
                 maxLength={maxLength}
                 rows={1}
               />
@@ -148,6 +150,8 @@ export function ChatInput({
           <div className="text-center mt-1">
             {isLoading ? (
               <div className="text-[10px] text-blue-600">분석 중...</div>
+            ) : isValidating ? (
+              <div className="text-[10px] text-orange-600">질문 검증 중...</div>
             ) : (
               <div className="text-[10px] text-gray-500">Enter로 전송, Shift+Enter로 줄바꿈</div>
             )}

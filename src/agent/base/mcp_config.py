@@ -49,6 +49,7 @@ class MCPServerConfig:
     AGENT_SERVER_GROUPS = {
         "data_collector": ["financedatareader", "naver_news", "tavily_search"],
         "analysis": [
+            "financedatareader",
             "stock_analysis",
             "financial_analysis",
             "macroeconomic",

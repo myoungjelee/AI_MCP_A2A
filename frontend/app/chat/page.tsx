@@ -56,7 +56,7 @@ function ChatPageContent() {
     return null
   })
   const isSendingRef = useRef(false)
-  const { validateQuestion } = useInvestmentValidation()
+  const { validateQuestion, isValidating } = useInvestmentValidation()
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -396,6 +396,7 @@ function ChatPageContent() {
       messages={messages}
       input={input}
       isLoading={isLoading}
+      isValidating={isValidating}
       onInputChange={setInput}
       onSend={handleSend}
       onMessageCopy={handleMessageCopy}
