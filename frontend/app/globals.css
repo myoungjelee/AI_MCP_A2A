@@ -1,9 +1,10 @@
+/* Highlight.js 스타일 */
+@import 'highlight.js/styles/github.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Highlight.js 스타일 */
-@import 'highlight.js/styles/github.css';
 
 /* 마크다운 컨텐츠 스타일링 - Tailwind CSS @apply 방식 */
 .markdown-content {

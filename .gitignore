@@ -51,6 +51,8 @@ config.yml
 *.db
 *.sqlite
 *.sqlite3
+*.mp4
+*.wav
 
 # 클라우드 인증 및 설정
 .cloudflared/
