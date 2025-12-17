@@ -135,7 +135,6 @@ function ChatPageContent() {
       }
 
       // 투자 관련 질문만 백엔드로 분석 요청
-      // TODO: eu.org 도메인 나오면 Cloudflare Tunnel URL로 변경
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
       const response = await fetch(`${apiBaseUrl}/analyze/stream`, {
         method: 'POST',
@@ -158,97 +157,113 @@ function ChatPageContent() {
       }
 
       const decoder = new TextDecoder()
+      let buffer = '' // chunk 사이에 걸친 데이터 누적용
 
       try {
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
 
-          const chunk = decoder.decode(value, { stream: true })
-          const lines = chunk.split('\n')
+          // 1) 새 chunk 를 버퍼에 이어붙이기
+          buffer += decoder.decode(value, { stream: true })
 
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const jsonStr = line.slice(6).trim()
-                if (!jsonStr) continue
-                
-                const data = JSON.parse(jsonStr)
+          // 2) SSE 이벤트는 보통 \n\n 로 한 덩어리가 끝남
+          const events = buffer.split('\n\n')
+          buffer = events.pop() ?? '' // 마지막 조각은 아직 미완성일 수 있으니 버퍼에 남김
 
-                switch (data.type) {
-                  case 'start':
-                    if (!sessionId && data.session_id) {
-                      setSessionId(data.session_id)
-                      // 로컬 스토리지에 저장하여 새로고침 시에도 유지
-                      localStorage.setItem('chat_session_id', data.session_id)
-                    }
-                    break
+          // 3) 완성된 이벤트들만 처리
+          for (const event of events) {
+            // 여러 줄 중 data: 로 시작하는 줄만 찾기
+            const dataLine = event
+              .split('\n')
+              .find(line => line.startsWith('data: '))
 
-                  case 'step_update':
-                    setMessages(prev => 
-                      prev.map(msg => 
-                        msg.id === loadingMessage.id 
-                          ? { 
-                              ...msg, 
-                              content: `${data.step} 단계 진행 중...`,
-                              analysisStep: {
-                                step: data.step,
-                                message: `${data.step} 단계 진행 중...`,
-                                status: data.status || 'running'
-                              }
-                            }
-                          : msg
-                      )
-                    )
-                    break
+            if (!dataLine) continue
 
-                  case 'step_completed':
-                    setMessages(prev => 
-                      prev.map(msg => 
-                        msg.id === loadingMessage.id 
-                          ? { 
-                              ...msg, 
-                              analysisStep: {
-                                step: data.step,
-                                message: `${data.step} 단계 완료`,
-                                status: 'completed'
-                              }
-                            }
-                          : msg
-                      )
-                    )
-                    break
+            const jsonStr = dataLine.slice(6).trim()
+            if (!jsonStr) continue
 
-                  case 'final_response':
-                    setMessages(prev => 
-                      prev.map(msg => 
-                        msg.id === loadingMessage.id 
-                          ? { 
-                              ...msg, 
-                              content: data.response,
-                              status: 'success',
-                              usedMCPServers: data.used_servers ? {
+            let data: any
+            try {
+              data = JSON.parse(jsonStr)
+            } catch (e) {
+              console.warn('JSON 파싱 실패:', e, '\nraw:', jsonStr)
+              continue // 이 이벤트만 건너뛰고 나머지 계속
+            }
+
+            switch (data.type) {
+              case 'start':
+                if (!sessionId && data.session_id) {
+                  setSessionId(data.session_id)
+                  localStorage.setItem('chat_session_id', data.session_id)
+                }
+                break
+
+              case 'step_update':
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === loadingMessage.id
+                      ? {
+                          ...msg,
+                          content: `${data.step} 단계 진행 중...`,
+                          analysisStep: {
+                            step: data.step,
+                            message: `${data.step} 단계 진행 중...`,
+                            status: data.status || 'running',
+                          },
+                        }
+                      : msg,
+                  ),
+                )
+                break
+
+              case 'step_completed':
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === loadingMessage.id
+                      ? {
+                          ...msg,
+                          analysisStep: {
+                            step: data.step,
+                            message: `${data.step} 단계 완료`,
+                            status: 'completed',
+                          },
+                        }
+                      : msg,
+                  ),
+                )
+                break
+
+              case 'final_response':
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === loadingMessage.id
+                      ? {
+                          ...msg,
+                          content: data.response,
+                          status: 'success',
+                          usedMCPServers: data.used_servers
+                            ? {
                                 used_servers: data.used_servers,
                                 connected_servers: data.used_servers,
                                 available_tools: data.used_servers.length,
-                                total_servers: 6
-                              } : undefined
-                            }
-                          : msg
-                      )
-                    )
-                    break
+                                total_servers: 6,
+                              }
+                            : undefined,
+                        }
+                      : msg,
+                  ),
+                )
+                break
 
-                  case 'complete':
-                    setIsLoading(false)
-                    break
+              case 'complete':
+                setIsLoading(false)
+                break
 
-                  case 'error':
-                    throw new Error(data.error || "알 수 없는 오류가 발생했습니다.")
-                }
-              } catch (parseError) {
-                console.warn('JSON 파싱 실패:', parseError, 'Line:', line)
-              }
+              case 'error':
+                throw new Error(
+                  data.error || '알 수 없는 오류가 발생했습니다.',
+                )
             }
           }
         }
