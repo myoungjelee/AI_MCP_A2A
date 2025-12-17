@@ -5,42 +5,48 @@ echo ======================================
 echo AI MCP A2A System Auto Startup
 echo ======================================
 
+REM 0. Change working directory
 cd /d "D:\Python\AI_MCP_A2A"
 
-echo [1/2] Starting Ollama Server...
-start /min cmd /c "ollama serve"
-timeout /t 10
+REM 1. Start Ollama server (background)
+echo [1/3] Starting Ollama Server...
+start "" /min cmd /c "ollama serve >nul 2>&1"
+timeout /t 5 >nul
 
-:start_tunnels
-echo [2/2] Starting Pinggy Tunnel...
-REM TODO: eu.org 도메인 나오면 Cloudflare Tunnel로 전환
+REM 2. Wait for Backend API (max 30s)
+echo [2/3] Waiting for Backend API (http://localhost:8000)...
+set /a counter=0
 
-echo Pinggy Public URL: https://uexkl-175-113-49-154.a.free.pinggy.link
-echo Access Token: z0Mt4RGjye (starting in background...)
+:wait_backend
+curl -s http://localhost:8000 >nul 2>&1
+if %errorlevel% equ 0 goto backend_ready
 
-REM Create temporary VBScript for silent execution
-echo Set WshShell = CreateObject("WScript.Shell") > %temp%\pinggy_silent.vbs
-echo WshShell.Run "cmd /c echo z0Mt4RGjye | ssh -p 443 -R0:127.0.0.1:8000 -L4300:127.0.0.1:4300 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 z0Mt4RGjye@free.pinggy.io", 0, False >> %temp%\pinggy_silent.vbs
+set /a counter+=1
+if %counter% geq 30 (
+    echo [WARNING] Backend API not responding after 30 seconds.
+    echo Proceeding to start Cloudflare Tunnel anyway...
+    goto start_tunnel
+)
 
-REM Execute silently
-cscript //nologo %temp%\pinggy_silent.vbs
+timeout /t 1 >nul
+goto wait_backend
 
-REM Clean up
-del %temp%\pinggy_silent.vbs
+:backend_ready
+echo [OK] Backend API is responding!
 
-timeout /t 10
+:start_tunnel
+echo.
+echo [3/3] Starting Cloudflare Tunnel...
+echo (Tunnel logs will be shown in this window)
+echo --------------------------------------
+cloudflared tunnel run ai-mcp-a2a-backend
+echo --------------------------------------
+echo [Tunnel process exited]
 
+echo.
 echo ======================================
-echo [SUCCESS] System Startup Complete!
-echo ======================================
-echo Frontend: https://ai-mcp-a2a.vercel.app
-echo Backend API: https://uexkl-175-113-49-154.a.free.pinggy.link
-echo Local Backend: http://localhost:8000
-echo ======================================
-echo NOTE: Pinggy tunnel running silently in background!
-echo ======================================
-echo Ready URLs:
-echo - Frontend: https://ai-mcp-a2a.vercel.app
-echo - API: https://uexkl-175-113-49-154.a.free.pinggy.link
+echo Frontend : https://ai-mcp-a2a.vercel.app
+echo Backend  : http://localhost:8000
+echo Public   : https://ai-mcp-a2a-backend.xyz
 echo ======================================
 pause
