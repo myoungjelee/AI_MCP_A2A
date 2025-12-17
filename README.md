@@ -13,7 +13,7 @@
 
 ## 📺 데모
 
-🔗 **Live Demo**: [https://ai-mcp-a2a-frontend.vercel.app](https://ai-mcp-a2a-frontend.vercel.app)
+🔗 **Live Demo**: [https://ai-mcp-a2a.vercel.app](https://ai-mcp-a2a.vercel.app)
 
 - **프론트엔드**: Vercel 배포 (항상 접근 가능한 고정 URL 제공)
 - **백엔드**: ngrok 터널링으로 외부 접근 가능 (개발/테스트용)
