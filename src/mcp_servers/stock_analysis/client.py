@@ -7,7 +7,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import FinanceDataReader as fdr
 import numpy as np
@@ -206,7 +206,11 @@ class StockAnalysisClient(BaseMCPClient):
                 "message": "트렌드 분석에 실패했습니다",
             }
 
-    async def calculate_statistical_indicators(self, symbol: str) -> Dict[str, Any]:
+    async def calculate_statistical_indicators(
+        self,
+        symbol: str,
+        as_of: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
         """통계적 지표 계산 수행 (캐싱 + 재시도 로직)"""
         try:
             cache_key = self._get_cache_key(

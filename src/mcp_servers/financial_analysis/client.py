@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
@@ -238,7 +238,12 @@ class FinancialAnalysisClient(BaseMCPClient):
             ) from e
 
     async def get_financial_data(
-        self, symbol: str, data_type: str, year: int = None, quarter: int = None
+        self,
+        symbol: str,
+        data_type: str,
+        year: int = None,
+        quarter: int = None,
+        as_of: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """재무 데이터 조회 - 실제 API 사용"""
         try:

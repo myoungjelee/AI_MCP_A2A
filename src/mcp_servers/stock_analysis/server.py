@@ -5,7 +5,8 @@
 """
 
 import logging
-from typing import Any, Dict
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 from ..base.base_mcp_server import BaseMCPServer
 from .client import StockAnalysisClient
@@ -79,7 +80,10 @@ class StockAnalysisMCPServer(BaseMCPServer):
                     )
 
             @self.mcp.tool()
-            async def calculate_statistical_indicators(symbol: str) -> Dict[str, Any]:
+            async def calculate_statistical_indicators(
+                symbol: str,
+                as_of: Optional[datetime] = None,
+            ) -> Dict[str, Any]:
                 """통계적 지표 계산 수행 (캐싱 + 재시도 로직)"""
                 try:
                     if not self.analysis_client:

@@ -18,7 +18,8 @@
 """
 
 import logging
-from typing import Any, Dict, Literal
+from datetime import datetime
+from typing import Any, Dict, Literal, Optional
 
 from ..base.base_mcp_server import BaseMCPServer
 from .client import FinancialAnalysisClient
@@ -70,6 +71,7 @@ class FinancialAnalysisMCPServer(BaseMCPServer):
             async def get_financial_data(
                 symbol: str,
                 data_type: Literal["income", "balance", "cashflow", "all"] = "all",
+                as_of: Optional[datetime] = None,
             ) -> Dict[str, Any]:
                 """
                 재무 데이터 조회
@@ -90,7 +92,9 @@ class FinancialAnalysisMCPServer(BaseMCPServer):
                         )
 
                     result = await self.financial_client.get_financial_data(
-                        symbol, data_type
+                        symbol,
+                        data_type,
+                        as_of=as_of,
                     )
                     return self.create_standard_response(
                         success=True,
@@ -105,7 +109,10 @@ class FinancialAnalysisMCPServer(BaseMCPServer):
                     )
 
             @self.mcp.tool()
-            async def calculate_financial_ratios(symbol: str) -> Dict[str, Any]:
+            async def calculate_financial_ratios(
+                symbol: str,
+                as_of: Optional[datetime] = None,
+            ) -> Dict[str, Any]:
                 """
                 재무비율 계산
 
@@ -123,8 +130,14 @@ class FinancialAnalysisMCPServer(BaseMCPServer):
                             f"calculate_financial_ratios: {symbol}",
                         )
 
+                    financial_data = await self.financial_client.get_financial_data(
+                        symbol,
+                        "all",
+                        as_of=as_of,
+                    )
+
                     result = await self.financial_client.calculate_financial_ratios(
-                        symbol
+                        financial_data,
                     )
                     return self.create_standard_response(
                         success=True,
