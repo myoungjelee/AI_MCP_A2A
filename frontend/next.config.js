@@ -8,11 +8,17 @@ const nextConfig = {
   },
   env: {
     // API Endpoints
-    NEXT_PUBLIC_ANALYZE_ENDPOINT: "/analyze",
-    NEXT_PUBLIC_STREAM_ENDPOINT: "/analyze/stream",
-    NEXT_PUBLIC_HEALTH_ENDPOINT: "/health",
-    NEXT_PUBLIC_MCP_STATUS_ENDPOINT: "/mcp/status",
-    NEXT_PUBLIC_VALIDATE_ENDPOINT: "/validate/investment/json",
+    NEXT_PUBLIC_ANALYZE_ENDPOINT:
+      process.env.NEXT_PUBLIC_ANALYZE_ENDPOINT || "/analyze",
+    NEXT_PUBLIC_STREAM_ENDPOINT:
+      process.env.NEXT_PUBLIC_STREAM_ENDPOINT || "/analyze/stream",
+    NEXT_PUBLIC_HEALTH_ENDPOINT:
+      process.env.NEXT_PUBLIC_HEALTH_ENDPOINT || "/health",
+    NEXT_PUBLIC_MCP_STATUS_ENDPOINT:
+      process.env.NEXT_PUBLIC_MCP_STATUS_ENDPOINT || "/mcp/status",
+    NEXT_PUBLIC_VALIDATE_ENDPOINT:
+      process.env.NEXT_PUBLIC_VALIDATE_ENDPOINT ||
+      "/validate/investment/json",
   },
 };
 
