@@ -6,7 +6,7 @@ echo AI MCP A2A System Auto Startup
 echo ======================================
 
 REM 0. Change working directory
-cd /d "D:\Python\AI_MCP_A2A"
+cd /c "C:\Projects\Python\AI_MCP_A2A"
 
 REM 1. Start Ollama server (background)
 echo [1/3] Starting Ollama Server...

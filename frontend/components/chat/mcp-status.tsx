@@ -27,6 +27,7 @@ export function MCPStatus({ className }: MCPStatusProps) {
   const [mcpStatus, setMcpStatus] = useState<MCPStatusData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const endpoint = process.env.NEXT_PUBLIC_MCP_STATUS_ENDPOINT || '/mcp/status'
 
   // 서버명을 한글로 변환
   const getServerDisplayName = (serverName: string) => {
@@ -45,7 +46,7 @@ export function MCPStatus({ className }: MCPStatusProps) {
   const fetchMCPStatus = async () => {
     try {
       setIsLoading(true)
-      const response = await fetch('http://localhost:8000/mcp/status')
+      const response = await fetch(endpoint, { cache: 'no-store' })
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
